@@ -1,5 +1,9 @@
 import flet
-from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image
+from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker
+
+# global variables 
+global_selected_image_path = ""
+global_image_selected = False
 
 def main(page: Page):
     page.title = "Math I/O"
@@ -11,6 +15,7 @@ def main(page: Page):
 
     def file_btn_fn(e):
         print("File button pressed fn called !!")
+        open_file_dialog_fn()
 
     def change_theme_fn(e):
         print("Called change theme fn!!!")
@@ -49,22 +54,66 @@ def main(page: Page):
         print("Start btn pressed fn called !!")
 
         # implement logic fully later
-        if (int(radio_group.value) == 1):
+        if (int(radio_group.value) == 1 and global_image_selected):
             print("Showing text processing layout")
+            
+            # set visibility of layouts
             input_layout.visible = False
             text_processing_layout.visible = True
+            
+            # set image source
+            text_img.src = global_selected_image_path
+            
+            # update the ui
             page.update()
         
-        if (int(radio_group.value) == 2):
+        if (int(radio_group.value) == 2 and global_image_selected):
             print("Showing eqation processing layout")
+            
+            # visibility
             input_layout.visible = False
             equation_processing_layout.visible = True
+            
+            # set source for eqation image
+            eqation_img.src = global_selected_image_path
+
+            # update the ui
             page.update()
     
     
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
+    
+    
+    # fn to handle file picker result
+    def on_file_selected(e: flet.FilePickerResultEvent):
+
+        global global_selected_image_path
+        global global_image_selected
+
+        if e.files:
+            selected_file = e.files[0].path
+            print("Selected : ", selected_file)
+
+            # update the image path
+            global_selected_image_path = selected_file
+            print("global selected image path is : " + global_selected_image_path)
+            select_file_btn.text = "File selected!"
+            path_lable.value = global_selected_image_path
+            select_file_btn.update()
+            path_lable.update()
+
+            # set flag true
+            global_image_selected = True
+    
+    # fn to open file dialog
+    def open_file_dialog_fn():
+        print("Called open file dialog fn !!!")
+        file_picker.pick_files(
+            allow_multiple=False,
+            allowed_extensions=["png", "jpg", "jpeg"]
+        )
     
     # define vars
 
@@ -125,6 +174,8 @@ def main(page: Page):
         ),
         on_click=file_btn_fn,
     )
+
+    path_lable = Text("", size=10,font_family="Roboto",weight=flet.FontWeight.BOLD,color="#0D96FF")
 
     radio_group = RadioGroup(
         content=Row(
@@ -196,8 +247,15 @@ def main(page: Page):
             # spacer
             Container(height=20),
 
-            # big elevated button for file
-            select_file_btn,
+            # Elevated button and path lable
+            Column(
+                [
+                    select_file_btn,
+                    path_lable
+                ],
+                alignment=flet.MainAxisAlignment.CENTER,
+                horizontal_alignment=flet.CrossAxisAlignment.CENTER
+            ),
 
             # space
             Container(height=20),
@@ -473,6 +531,12 @@ def main(page: Page):
         expand=True,
         alignment=flet.MainAxisAlignment.CENTER
     )
+
+    # def file picker
+    file_picker = flet.FilePicker(on_result=on_file_selected)
+
+    # append to page
+    page.overlay.append(file_picker)
 
     # add to the page - this area shows the inserted widgets
     page.add(
