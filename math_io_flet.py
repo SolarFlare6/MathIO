@@ -1,7 +1,7 @@
 import flet
 from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker
-
-# global variables 
+from image_proccesing import hello_world
+# global variables
 global_selected_image_path = ""
 global_image_selected = False
 
@@ -52,6 +52,7 @@ def main(page: Page):
     # start btn fn
     def start_btn_fn(e):
         print("Start btn pressed fn called !!")
+        hello_world()
 
         # implement logic fully later
         if (int(radio_group.value) == 1 and global_image_selected):
