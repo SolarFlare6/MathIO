@@ -1,5 +1,6 @@
 import flet
-from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker
+from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing
+# note flet version 0.24.0
 
 # global variables 
 global_selected_image_path = ""
@@ -13,6 +14,37 @@ def main(page: Page):
 
     # define functions
 
+    # simply opens the snackbar with its default content
+    def open_snackbar():
+        print("Open snackbar function called !!")
+
+        # modify bgcolor
+        if (page.theme_mode == "light"):
+            print("Adjusting for light mode")
+            info_snackbar.bgcolor = "#F8F7FF"
+        else:
+            print("Adjusting for dark mode")
+            info_snackbar.bgcolor = "#202429"
+
+        info_snackbar.open = True
+        page.update()
+
+    # close the snackbar
+    def close_snackbar():
+        print("Close snackbar function called !!")
+        info_snackbar.open = False
+        page.update()
+    
+    # show snackbar with parametars - define the text that will be displayed, does it have a progress ring and the color of the ring
+    def set_snackbar(txt,show_progress_ring, ring_color):
+        print("Called Set snackbar function !!!")
+        snackbar_text.value = txt
+        snackbar_progress_ring.visible = show_progress_ring
+        if (ring_color != None):
+            print("Changing the color or the progress ring")
+            snackbar_progress_ring.color = ring_color
+        open_snackbar()
+    
     def file_btn_fn(e):
         print("File button pressed fn called !!")
         open_file_dialog_fn()
@@ -66,6 +98,9 @@ def main(page: Page):
             
             # update the ui
             page.update()
+
+            # show snackbar
+            set_snackbar("Text processing",True,None)
         
         if (int(radio_group.value) == 2 and global_image_selected):
             print("Showing eqation processing layout")
@@ -79,6 +114,9 @@ def main(page: Page):
 
             # update the ui
             page.update()
+
+            # show snacbar
+            set_snackbar("Equation processing",True,"#F53D37")
     
     
     # eqation calculate btn fn
@@ -147,6 +185,29 @@ def main(page: Page):
         ],
     )
 
+    # define snacbar content
+
+    # the text for the snackbar
+    snackbar_text = Text("...", size=20,font_family="Roboto",weight=flet.FontWeight.W_500,color=flet.colors.ON_SURFACE)
+
+    # progress ring for snackbar
+    snackbar_progress_ring = ProgressRing(width=16,height=16,stroke_width=3,color="#0D96FF")
+
+    # progress ring
+
+    snackbar_content = Row(
+        [
+            snackbar_text,
+            snackbar_progress_ring
+        ],
+    )
+
+    # define snackbar
+    info_snackbar = SnackBar(
+        content=snackbar_content,
+    )
+    
+    
     # define other layouts
 
     # define input layout widgets
@@ -237,7 +298,7 @@ def main(page: Page):
             # define big title
             Column(
                 [
-                    Text("Select or drag and drop an", size=40,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                    Text("For processing select an", size=40,font_family="Roboto",weight=flet.FontWeight.BOLD),
                     Text("image", size=40,font_family="Roboto",weight=flet.FontWeight.BOLD,color="#0D96FF"),
                 ],
                 alignment=flet.MainAxisAlignment.CENTER,
@@ -534,6 +595,9 @@ def main(page: Page):
 
     # def file picker
     file_picker = flet.FilePicker(on_result=on_file_selected)
+
+    # append snackbar
+    page.snack_bar = info_snackbar
 
     # append to page
     page.overlay.append(file_picker)
