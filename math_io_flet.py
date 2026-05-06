@@ -1,10 +1,17 @@
 import flet
 from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing
+import cv2
+import threading
 # note flet version 0.24.0
+# TODO : replace the lable with a text field in the respectiv layouts
 
 # global variables 
 global_selected_image_path = ""
 global_image_selected = False
+
+# global thread vars
+stop_event = threading.Event()
+last_points = None
 
 def main(page: Page):
     page.title = "Math I/O"
@@ -14,6 +21,191 @@ def main(page: Page):
 
     # define functions
 
+    # fn for cropping new (has better scaling and can morph with right click)
+    def get_4_crop_points(image_path, stop_event):
+        
+        img = cv2.imread(image_path)
+        
+        if img is None:
+            print("Failed to load image")
+            return None
+        
+        h, w = img.shape[:2]
+        
+        # scale to fit screen
+        max_w, max_h = 1000, 700
+        scale = min(max_w / w, max_h / h, 1.0)
+        
+        view_x, view_y = 0, 0
+        dragging = False
+        last_mouse = (0, 0)
+        
+        points = []
+        
+        def mouse_callback(event, x, y, flags, param):
+            nonlocal dragging, last_mouse, view_x, view_y
+            
+            if event == cv2.EVENT_LBUTTONDOWN:
+                # convert to original coords
+                real_x = int((x + view_x) / scale)
+                real_y = int((y + view_y) / scale)
+                
+                if len(points) < 4:
+                    points.append((real_x, real_y))
+                    print(f"Point {len(points)}: {(real_x, real_y)}")
+            
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                dragging = True
+                last_mouse = (x, y)
+            
+            elif event == cv2.EVENT_MOUSEMOVE and dragging:
+                dx = x - last_mouse[0]
+                dy = y - last_mouse[1]
+                
+                view_x = max(0, min(view_x - dx, int(w * scale)))
+                view_y = max(0, min(view_y - dy, int(h * scale)))
+                
+                last_mouse = (x, y)
+            
+            elif event == cv2.EVENT_RBUTTONUP:
+                dragging = False
+        
+        cv2.namedWindow("Cropper", cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("Cropper", mouse_callback)
+        
+        while not stop_event.is_set():
+            
+            # crop visible area
+            resized = cv2.resize(img, None, fx=scale, fy=scale)
+            vh, vw = resized.shape[:2]
+            
+            x2 = min(view_x + max_w, vw)
+            y2 = min(view_y + max_h, vh)
+            
+            view = resized[view_y:y2, view_x:x2].copy()
+            
+            # draw selected points
+            for i, (px, py) in enumerate(points):
+                sx = int(px * scale) - view_x
+                sy = int(py * scale) - view_y
+                
+                if 0 <= sx < view.shape[1] and 0 <= sy < view.shape[0]:
+                    cv2.circle(view, (sx, sy), 5, (225, 110, 91), -1)
+                    cv2.putText(view, str(i+1), (sx+5, sy-5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
+            
+            cv2.imshow("Cropper", view)
+            
+            key = cv2.waitKey(1)
+            
+            if key == 27:  # ESC
+                break
+            
+            if len(points) == 4:
+                break
+        
+        cv2.destroyAllWindows()
+        
+        if len(points) != 4:
+            print("Not enough points selected")
+            return None
+        
+        return points
+
+    # funtion for cropping (opens the window) [currently unused]
+    def get_4_crop_points_old(image_path, stop_event):
+        
+        img = cv2.imread(image_path)
+        
+        if img is None:
+            print("Failed to load image")
+            return None
+        
+        
+        clone = img.copy()
+        points = []
+        
+        def mouse_callback(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
+                points.append((x, y))
+                print(f"Point {len(points)}: {(x, y)}")
+        
+        cv2.namedWindow("Cropper")
+        cv2.setMouseCallback("Cropper", mouse_callback)
+        
+        while not stop_event.is_set():
+            
+            display = clone.copy()
+            
+            # draw points - define the color and the size of the points (color is in BGR)
+            for i, (x, y) in enumerate(points):
+                cv2.circle(display, (x, y), 5, (225, 110, 91), -1)
+                cv2.putText(display, str(i+1), (x+5, y-5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
+            
+            cv2.imshow("Cropper", display)
+            
+            key = cv2.waitKey(1)
+            
+            if key == 27:  # ESC
+                break
+            
+            if len(points) == 4:
+                break
+        
+        cv2.destroyAllWindows()
+        
+        if len(points) != 4:
+            print("Not enough points selected")
+            return None
+        
+        return points  # [TL, TR, BR, BL]
+
+    
+    # funtion to run cropper
+    def run_cropper(image_path):
+        
+        global last_points
+        
+        print("Running cropper...")
+        
+        pts = get_4_crop_points(image_path, stop_event)
+        last_points = pts
+        
+        print("Selected points:", pts)
+        stop_cropper()
+    
+    # fn to start cropper thread
+    def run_cropper_start_thread(image_path):
+        
+        print("Called function to start cropper...")
+        
+        if image_path != "":
+            stop_event.clear()
+            
+            cropper_thread = threading.Thread(
+                target=run_cropper,
+                args=(image_path,),
+            )
+            
+            cropper_thread.start()
+            
+            print("Started cropper thread")
+        else:
+            print("No image selected!!!")
+    
+    # to stop the thread
+    def stop_cropper():
+        print("Stopping cropper...")
+        stop_event.set()
+        cv2.destroyAllWindows()
+    
+    # cropp button fn
+    def cropper_btn_fn(e):
+        print("Cropper button fn called !!!")
+        run_cropper_start_thread(global_selected_image_path)
+
+    
     # simply opens the snackbar with its default content
     def open_snackbar():
         print("Open snackbar function called !!")
@@ -137,10 +329,16 @@ def main(page: Page):
             # update the image path
             global_selected_image_path = selected_file
             print("global selected image path is : " + global_selected_image_path)
+            
+            # set values
             select_file_btn.text = "File selected!"
             path_lable.value = global_selected_image_path
+            cropper_button.visible = True
+
+            # update the elements
             select_file_btn.update()
             path_lable.update()
+            cropper_button.update()
 
             # set flag true
             global_image_selected = True
@@ -236,7 +434,17 @@ def main(page: Page):
         on_click=file_btn_fn,
     )
 
+    # to show the imagepath
     path_lable = Text("", size=10,font_family="Roboto",weight=flet.FontWeight.BOLD,color="#0D96FF")
+
+    # mini cropper button
+    cropper_button = IconButton(
+        icon=icons.CROP,
+        icon_color="#0D96FF",
+        tooltip="Crop image",
+        on_click=cropper_btn_fn
+    )
+    cropper_button.visible = False
 
     radio_group = RadioGroup(
         content=Row(
@@ -247,7 +455,7 @@ def main(page: Page):
                     label_style=flet.TextStyle(
                         size=25,
                         weight=flet.FontWeight.W_700,
-                        font_family="Roboto"
+                        font_family="Roboto",
                     )
                 ),
                 Radio(
@@ -312,7 +520,14 @@ def main(page: Page):
             Column(
                 [
                     select_file_btn,
-                    path_lable
+                    Row(
+                        [
+                            path_lable,
+                            Container(width=1),
+                            cropper_button,
+                        ],
+                        alignment=flet.MainAxisAlignment.CENTER,
+                    ),
                 ],
                 alignment=flet.MainAxisAlignment.CENTER,
                 horizontal_alignment=flet.CrossAxisAlignment.CENTER
@@ -578,6 +793,14 @@ def main(page: Page):
         alignment=flet.MainAxisAlignment.CENTER
     )
     text_processing_layout.visible = False
+
+    # cropping layout
+    cropping_layout = Column(
+        [
+
+        ],
+        alignment=flet.MainAxisAlignment.CENTER
+    )
 
 
 
