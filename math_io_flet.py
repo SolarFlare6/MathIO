@@ -2,12 +2,28 @@ import flet
 from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing
 import cv2
 import threading
+from io import BytesIO
+import base64
+import time
+import os
+
+# TODO : implement equation image to latex conversion
+
+# import mathplot lib without gui backend
+import matplotlib
+matplotlib.use("Agg")  # (no GUI backend)
+
+import matplotlib.pyplot as plt
+
 # note flet version 0.24.0
-# TODO : replace the lable with a text field in the respectiv layouts
 
 # global variables 
 global_selected_image_path = ""
 global_image_selected = False
+
+# temp img vars
+global_temp_equation_file_name = "equ_temp.png"
+global_temp_equation_path = ""
 
 # global thread vars
 stop_event = threading.Event()
@@ -21,6 +37,53 @@ def main(page: Page):
 
     # define functions
 
+    def latex_to_png_file(latex_str,output_path=global_temp_equation_file_name):
+        print("Running latex to base64 fn !!!")
+        
+        fig = plt.figure(figsize=(2, 1))
+        fig.patch.set_alpha(0)
+        
+        plt.text(
+            0.5,
+            0.5,
+            rf"${latex_str}$",
+            fontsize=30,
+            ha="center",
+            va="center",
+            color="black"
+        )
+        
+        plt.axis("off")
+        
+        plt.savefig(
+            output_path,
+            format="png",
+            bbox_inches="tight",
+            pad_inches=0.1,
+            transparent=True,
+            dpi=300
+        )
+        
+        plt.close(fig)
+        
+        return output_path
+
+    # delete the temp img fn
+    def delete_rendered_equation():
+        print("Called the function to delete the temporary file")
+
+        try:
+
+            latex_render_img.src = "render_place_holder.png"
+            page.update()
+
+            if (os.path.exists(global_temp_equation_path)):
+                os.remove(global_temp_equation_path)
+                print("deleted temporary file.")
+        
+        except Exception as e:
+            print(e)
+    
     # fn for cropping new (has better scaling and can morph with right click)
     def get_4_crop_points(image_path, stop_event):
         
@@ -256,6 +319,9 @@ def main(page: Page):
     # close eqation layout btn fn
     def close_eqation_layout_btn_fn(e):
         print("Close eqation layout btn pressed fn called !!")
+        
+        delete_rendered_equation()
+        
         equation_processing_layout.visible = False
         input_layout.visible = True
         # implement full logic when implementing
@@ -310,6 +376,23 @@ def main(page: Page):
             # show snacbar
             set_snackbar("Equation processing",True,"#F53D37")
     
+    
+    # render latex btn fn
+    def render_latex_btn_fn(e):
+        
+        global global_temp_equation_path
+        
+        print("Render latex btn function called !!!")
+
+        # get the path for the image
+        if (extracted_eqation_latex_field.value != ""):
+            
+            img_path = latex_to_png_file(extracted_eqation_latex_field.value)
+            
+            latex_render_img.src = img_path
+            global_temp_equation_path = img_path
+
+        page.update()
     
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
@@ -411,7 +494,7 @@ def main(page: Page):
     # define input layout widgets
 
     select_file_btn = ElevatedButton(
-        text="File",
+        text="Open file",
         #bgcolor="transparent",
         color="#0D96FF", # text color
         width=500,
@@ -569,13 +652,36 @@ def main(page: Page):
         border_radius=flet.border_radius.all(20),
     )
 
-    extracted_eqation_label = Text("...", size=20,font_family="Roboto",weight=flet.FontWeight.W_600)
+    extracted_eqation_latex_field = TextField("...",expand=True,border_width=0,hint_text="latex formula here")
+
+    render_latex_btn = IconButton(
+        icon=icons.ARROW_CIRCLE_DOWN_ROUNDED,
+        icon_size=35,
+        tooltip="render latex",
+        icon_color="#AA5959",
+        on_click=render_latex_btn_fn
+    )
+
+    latex_render_img = Image(
+        src="render_place_holder.png",
+        border_radius=20,
+        fit=flet.ImageFit.CONTAIN,       
+    )
+
+    latex_render_conatainer = Container(
+        width=500,
+        height=150,
+        content=latex_render_img,
+        padding=10,
+        bgcolor=flet.colors.SURFACE_VARIANT,
+        border_radius=flet.border_radius.all(20)
+    )
 
     eqation_caluclate_btn = ElevatedButton(
         text="Calculate",
         #bgcolor="transparent",
         color="#F53D37", # text color
-        width=500,
+        width=250,
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
@@ -599,7 +705,7 @@ def main(page: Page):
         text="Close",
         #bgcolor="transparent",
         color=flet.colors.ON_SURFACE, # text color
-        width=500,
+        width=250,
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
@@ -627,26 +733,46 @@ def main(page: Page):
             Column(
                 [
                     # title for extracted eqation layout
-                    Text("Extracted equation :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                    Text("Latex form :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
                     
                     # spacer
                     Container(height=5),
                     
-                    # container for the extacted eqation
-                    Container(
-                        width=500,
-                        height=150,
-                        content=extracted_eqation_label,
-                        padding=10,
-                        bgcolor=flet.colors.SURFACE_VARIANT,
-                        border_radius=flet.border_radius.all(20)
+                    # row for latex field and render button
+                    Row(
+                        [
+                            # container for the extacted eqation
+                            Container(
+                                width=500,
+                                height=70,
+                                content=extracted_eqation_latex_field,
+                                padding=10,
+                                bgcolor=flet.colors.SURFACE_VARIANT,
+                                border_radius=flet.border_radius.all(20)
+                            ),
+
+                            # render latex button
+                            render_latex_btn,
+                        ],
+                        alignment=flet.MainAxisAlignment.CENTER,
                     ),
 
                     # spacer
                     Container(height=10),
 
-                    # button column
-                    Column(
+                    # rendered latex output in image form
+                    
+                    # label for rendered eqation
+                    Text("Rendered equation :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
+
+                    # render latex conatiner
+                    latex_render_conatainer,
+
+                    # spacer
+                    Container(height=10),
+
+                    # button row
+                    Row(
                         [
                             eqation_caluclate_btn,
                             close_eqation_layout_btn,
@@ -677,7 +803,7 @@ def main(page: Page):
         border_radius=flet.border_radius.all(20),
     )
 
-    extracted_text_label = Text("...", size=20,font_family="Roboto",weight=flet.FontWeight.W_600)
+    extracted_text_field = TextField("...",expand=True,border_width=0,multiline=True,hint_text="extracted text",read_only=True)
 
     copy_txt_btn = ElevatedButton(
         text="Copy",
@@ -769,7 +895,7 @@ def main(page: Page):
                     Container(
                         width=500,
                         height=150,
-                        content=extracted_text_label,
+                        content=extracted_text_field,
                         padding=10,
                         bgcolor=flet.colors.SURFACE_VARIANT,
                         border_radius=flet.border_radius.all(20)
@@ -830,6 +956,6 @@ def main(page: Page):
         main_column
     )
 
-flet.app(target=main)
+#flet.app(target=main)
 #flet.app(target=main, view=flet.WEB_BROWSER, assets_dir="assets") # you can comment the line above and uncomment this line to run it in a browser
-#flet.app(target=main, assets_dir="assets") # when assets are used
+flet.app(target=main, assets_dir="assets") # when assets are used
