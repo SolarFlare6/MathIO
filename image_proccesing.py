@@ -52,6 +52,14 @@ def process_image(selected_image_path, lang="eng", debug=False):
     img = cv.imread(selected_image_path)
     orig = img.copy()
 
+    # ---------- INIT VARIABLES FOR DEBUG ----------
+    edges_image_pre_dilation = orig.copy()
+    edges_image_dilated = orig.copy()
+    largest_contour = orig.copy()
+    convex_hull = orig.copy()
+    points_paper = orig.copy()
+    paper_display = orig.copy()
+
     # ---------- preprocessing ----------
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY) # Transform Image into a GreyScale Image
     gray = cv.GaussianBlur(gray, (7, 7), 0)
@@ -64,74 +72,127 @@ def process_image(selected_image_path, lang="eng", debug=False):
         image_pre_dilation = img.copy()
         contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
         edges_image_pre_dilation = cv.drawContours(image_pre_dilation, contours , -1, (0, 255, 255), 5)
-
+    # ---------- Kernel Adjustments ----------
     # Kernel is used like a brush, if one pixel is white in dilate, takes that and expands the area
     # to fix broken points for better contours
-    kernel = np.ones((5, 5), np.uint8)
-    edges = cv.dilate(edges, kernel, iterations=2)
-    edges = cv.morphologyEx(edges, cv.MORPH_CLOSE, kernel) #OVDE SNAPSHOT
-    if debug:
-        image_dilated = img.copy()
-        contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-        edges_image_dilated = cv.drawContours(image_dilated, contours , -1, (0, 0, 255), 5)
 
-    # ---------- find contours ----------
-    contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE) #If points touch one another, it is considered connected
+    kernels = [
+        np.ones((5, 5), np.uint8),
+        np.ones((3, 3), np.uint8),
+        np.ones((7, 7), np.uint8)
+    ]
 
-    # Pick Largest contour of the given. Typically, we catch contour of  the A4 Paper but depends on the situation
-    largest = max(contours, key=cv.contourArea)
+    contours = None
+    largest = None
+    used_edges = None
+    pts = None
+
+    for kernel in kernels:
+
+        # apply dilation (expands white regions to connect broken edges)
+        temp_edges = cv.dilate(edges, kernel, iterations=2)
+
+        # MORPH_CLOSE fills small gaps between edges to form closed shapes
+        temp_edges = cv.morphologyEx(temp_edges, cv.MORPH_CLOSE, kernel)  # OVDE SNAPSHOT
+
+        if debug:
+            image_dilated = img.copy()
+
+            # we visualize what contours we get after this kernel version
+            contours_debug, _ = cv.findContours(
+                temp_edges,
+                cv.RETR_EXTERNAL,
+                cv.CHAIN_APPROX_SIMPLE
+            )
+
+            edges_image_dilated = cv.drawContours(
+                image_dilated,
+                contours_debug,
+                -1,
+                (0, 0, 255),
+                5
+            )
+
+        # ---------- find contours ----------
+        # If points touch one another, it is considered connected
+        contours_try, _ = cv.findContours(
+            temp_edges,
+            cv.RETR_EXTERNAL,
+            cv.CHAIN_APPROX_SIMPLE
+        )
+
+        if not contours_try:
+            print("we continue")
+            continue
+
+        # Pick Largest contour of the given.
+        largest_try = max(contours_try, key=cv.contourArea)
+
+        # safety check: ignore tiny/noisy contours
+        if cv.contourArea(largest_try) < 1000:
+            continue
+
+        # ---------- robust corner detection ----------
+        hull = cv.convexHull(largest_try)
+        peri = cv.arcLength(hull, True)
+
+        if debug:
+            image_hull = img.copy()
+            convex_hull = cv.drawContours(image_hull, [hull], -1, (0, 0, 255), 5)
+
+        approx = None
+        for eps in np.linspace(0.02, 0.06, 10):
+            candidate = cv.approxPolyDP(hull, eps * peri, True)
+            if len(candidate) == 4:
+                approx = candidate
+                if debug:
+                    paper_image = img.copy()
+                    paper_display = cv.drawContours(paper_image, [approx], -1, (0, 255, 0), 10)
+                break
+
+        # must have 4 points
+        if approx is None:
+            continue
+
+        pts_try = approx.reshape(4, 2).astype("float32")
+
+        # ---------- order points ----------
+        pts_try = order_points(pts_try)
+
+        if debug:
+            points_paper = img.copy()
+            for (x, y) in pts_try:
+                cv.circle(points_paper, (int(x), int(y)), 30, (0, 0, 255), -1)
+
+        # ---------- compute width & height ----------
+        widthA = np.linalg.norm(pts_try[2] - pts_try[3])
+        widthB = np.linalg.norm(pts_try[1] - pts_try[0])
+        maxWidth = int(max(widthA, widthB))
+
+        heightA = np.linalg.norm(pts_try[1] - pts_try[2])
+        heightB = np.linalg.norm(pts_try[0] - pts_try[3])
+        maxHeight = int(max(heightA, heightB))
+
+        # no crash, samo reject  kernel
+        if maxHeight == 0 or maxWidth == 0:
+            continue
+
+        # ---------- ACCEPT RESULT ----------
+        contours = contours_try
+        largest = largest_try
+        used_edges = temp_edges
+        edges = temp_edges
+        pts = pts_try
+
+        break
+
+    # final validation after retry loop
+    if contours is None or largest is None or pts is None:
+        raise Exception("Invalid detected paper dimensions (zero width/height). No 4 points detected.")
+
     if debug:
         image_largest_contour = img.copy()
-        largest_contour = cv.drawContours(image_largest_contour, [largest] , -1, (0, 255, 255), 5)
-    # ---------- robust corner detection ----------
-
-    # Takes the form of the contour and tries to create a convex Shape so that every point can each on another inside the area.
-    hull = cv.convexHull(largest)
-    # Gets Perimeter for the hull which will be used for creating an exact replica of our a4 paper shape.
-    peri = cv.arcLength(hull, True)
-    if debug:
-        image_hull = img.copy()
-        convex_hull = cv.drawContours(image_hull, [hull], -1, (0, 0, 255), 5)
-
-    # Loop 10 times starting from 0.02 to 0.06 which each iteration will be equal distance from the
-    # Previous i, this way we try to create the polygon with the simplest shape of the A4 Paper.
-    approx = None
-    for eps in np.linspace(0.02, 0.06, 10):
-        candidate = cv.approxPolyDP(hull, eps * peri, True)
-        if len(candidate) == 4:
-            approx = candidate
-            if debug:
-                paper_image = img.copy()
-                paper_display = cv.drawContours(paper_image, [approx], -1, (0, 255, 0), 10)
-            break
-
-    # If the paper is really complicated in terms of form, fallback to this variation.
-    # Additional Explanation Tomorrow.
-    if approx is None:
-        rect = cv.minAreaRect(largest)
-        box = cv.boxPoints(rect)
-        if debug:
-            paper_image = img.copy()
-            paper_display = cv.drawContours(paper_image, [approx], -1, (0, 255, 0), 10)
-
-        pts = np.array(box, dtype="float32")
-    else:
-        pts = approx.reshape(4, 2).astype("float32")
-    # ---------- order points ----------
-    pts = order_points(pts)
-    if debug:
-        points_paper = img.copy()
-        for (x, y) in pts:
-            cv.circle(points_paper, (int(x), int(y)), 30, (0, 0, 255), -1)
-    # ---------- compute width & height ----------
-    widthA = np.linalg.norm(pts[2] - pts[3])
-    widthB = np.linalg.norm(pts[1] - pts[0])
-    maxWidth = int(max(widthA, widthB))
-
-    heightA = np.linalg.norm(pts[1] - pts[2])
-    heightB = np.linalg.norm(pts[0] - pts[3])
-    maxHeight = int(max(heightA, heightB))
-
+        largest_contour = cv.drawContours(image_largest_contour, [largest], -1, (0, 255, 255), 5)
     # ---------- destination points ----------
     dst = np.array([
         [0, 0],
@@ -140,10 +201,87 @@ def process_image(selected_image_path, lang="eng", debug=False):
         [0, maxHeight - 1]
     ], dtype="float32")
 
-    # ---------- perspective transform ----------
-    M = cv.getPerspectiveTransform(pts, dst)
-    warped = cv.warpPerspective(orig, M, (maxWidth, maxHeight))
+    # ---------- validate detected paper ----------
 
+    imgHeight, imgWidth = img.shape[:2]
+    imgArea = imgWidth * imgHeight
+
+    paperArea = maxWidth * maxHeight
+    coverage = paperArea / imgArea
+
+    # A4 aspect ratio:
+    # portrait  ≈ 0.707
+    # landscape ≈ 1.414
+    aspectRatio = maxWidth / maxHeight
+
+    valid_aspect_ratio = (
+            0.65 <= aspectRatio <= 0.80 or
+            1.20 <= aspectRatio <= 1.50
+    )
+
+    valid_size = (
+            maxWidth > 100 and
+            maxHeight > 100
+    )
+
+    if debug:
+        print("\n---------- Detection Validation ----------")
+        print(f"Image Size: {imgWidth}x{imgHeight}")
+        print(f"Paper Size: {maxWidth}x{maxHeight}")
+        print(f"Coverage Ratio: {coverage:.2f}")
+        print(f"Aspect Ratio: {aspectRatio:.2f}")
+        print(f"Aspect Valid: {valid_aspect_ratio}")
+        print(f"Size Valid: {valid_size}")
+
+    # ---------- invalid detections ----------
+
+    if not valid_size:
+        raise Exception(
+            "Detected contour dimensions are unrealistically small."
+        )
+
+    if not valid_aspect_ratio:
+        raise Exception(
+            "Detected contour does not resemble paper proportions."
+        )
+
+    # ---------- decision logic ----------
+
+    # CASE 1:
+    # contour is tiny compared to image
+    # likely wrong contour / missed paper
+
+    if coverage < 0.20:
+
+        raise Exception(
+            "Detected paper is too small or contour detection failed."
+        )
+
+    # CASE 2:
+    # paper almost fully fills image
+    # likely already perfectly aligned
+
+    elif coverage >= 0.90:
+
+        if debug:
+            print("Paper already fills frame -> skipping perspective transform")
+
+        warped = orig.copy()
+
+    # CASE 3:
+    # normal document detection
+    # apply perspective correction
+
+    else:
+
+        if debug:
+            print("Applying perspective transform")
+
+        # ---------- perspective transform ----------
+        M = cv.getPerspectiveTransform(pts, dst)
+
+        warped = cv.warpPerspective(orig,M,(maxWidth, maxHeight)
+        )
     # ---------- show results ----------
     if debug:
         print("Will ADD TOMORROW WITH MATPLOT!!!")
