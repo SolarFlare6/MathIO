@@ -420,7 +420,7 @@ def main(page: Page):
 
             # call the image proccess function
             try:
-                result = process_image(global_selected_image_path, debug=True)
+                result = process_image(global_selected_image_path, debug=True,) # VERIFY ARGUMENT IMPORTANT. Will make the function like a second one
                 print(result)
             except Exception as e:
                 print(e)

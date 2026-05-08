@@ -5,11 +5,14 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
+# from sympy.parsing.latex import parse_latex
+# from sympy import solve
 
 # ---------- helper: CONSTANT VARIABLES ----------
 save_path: str = "Debug_Images"
+verify_path: str = "Verify_Images"
 def create_path(save__path, name_of_image):
-    return str(Path(save_path, name_of_image))
+    return str(Path(save__path, name_of_image))
 
 
 # ---------- helper: order points ----------
@@ -46,10 +49,13 @@ def debug_plot(rows, cols, *images):
     plt.savefig(create_path(save_path, "debug_plot.jpg"))
     plt.close()
 
-def process_image(selected_image_path, lang="eng", debug=False):
+def process_image(selected_image_path, lang="eng", debug=False, verify=False):
 
     # ---------- load image ----------
     img = cv.imread(selected_image_path)
+    if img is None:
+        raise Exception("Image could not be loaded")
+
     orig = img.copy()
 
     # ---------- INIT VARIABLES FOR DEBUG ----------
@@ -189,7 +195,34 @@ def process_image(selected_image_path, lang="eng", debug=False):
 
     # final validation after retry loop
     if contours is None or largest is None or pts is None:
-        raise Exception("Invalid detected paper dimensions (zero width/height). No 4 points detected.")
+        if verify:
+            raise Exception("Invalid detected paper dimensions (zero width/height). No 4 points detected. Default to Manual Crop")
+        else:
+            raise Exception("Invalid detected paper dimensions (zero width/height). No 4 points detected. ")
+
+    # ---------- VERIFY MODE ----------
+    # When verify=True:
+    # The function stops after document detection and returns a preview
+    # image with the detected corner points drawn on it.
+    #
+    # This allows the user to visually confirm that the detected paper
+    # region is correct before OCR/perspective transformation happens.
+    #
+    # After confirmation, the same function is called again WITHOUT
+    # verify=True, causing the function to continue normally through:
+    # perspective transform -> OCR extraction -> final result.
+    #
+    # This avoids duplicating half the detection pipeline in a separate
+    # verification function and keeps all detection logic centralized.
+    if verify:
+        if not debug:
+            points_paper = img.copy()
+            for (x, y) in pts:
+                cv.circle(points_paper, (int(x), int(y)), 30, (0, 0, 255), -1)
+        path = create_path(verify_path, "verify.jpg")
+        cv.imwrite(path, points_paper)
+        print(path, " AND THE POINTS:", pts)
+        return (path, pts)
 
     if debug:
         image_largest_contour = img.copy()
@@ -308,7 +341,8 @@ def warp_perspective_image(selected_image_path, points):
     orig = img.copy()
 
 
-    # ---------- Order Points ----------
+    # ---------- Create Numpy Array & Order Points ----------
+    points = np.array(points, dtype="float32")
     ordered_points = order_points(points)
 
     # ---------- compute width & height ----------
