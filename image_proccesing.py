@@ -168,6 +168,7 @@ def process_image(selected_image_path, lang="eng", debug=False):
         widthA = np.linalg.norm(pts_try[2] - pts_try[3])
         widthB = np.linalg.norm(pts_try[1] - pts_try[0])
         maxWidth = int(max(widthA, widthB))
+        print("this are the points:\n", pts_try)
 
         heightA = np.linalg.norm(pts_try[1] - pts_try[2])
         heightB = np.linalg.norm(pts_try[0] - pts_try[3])
@@ -296,3 +297,47 @@ def process_image(selected_image_path, lang="eng", debug=False):
                    {"data": orig, "title": "Before: Original Image"},
                    {"data": warped, "title": "After:A4 Warped Perspective"},)
     return pt.image_to_string(warped, lang=lang) # Result send in string format
+
+
+def warp_perspective_image(selected_image_path, points):
+    # ---------- Load Image ----------
+    img = cv.imread(selected_image_path)
+    if img is None:
+        raise Exception("Image could not be loaded")
+
+    orig = img.copy()
+
+
+    # ---------- Order Points ----------
+    ordered_points = order_points(points)
+
+    # ---------- compute width & height ----------
+    widthA = np.linalg.norm(ordered_points[2] - ordered_points[3])
+    widthB = np.linalg.norm(ordered_points[1] - ordered_points[0])
+    maxWidth = int(max(widthA, widthB))
+    print("this are the points:\n", ordered_points)
+
+    heightA = np.linalg.norm(ordered_points[1] - ordered_points[2])
+    heightB = np.linalg.norm(ordered_points[0] - ordered_points[3])
+    maxHeight = int(max(heightA, heightB))
+
+    if maxWidth == 0 or maxHeight == 0:
+        raise Exception("Invalid warp dimensions")
+
+    # ---------- destination points ----------
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]
+    ], dtype="float32")
+
+    # ---------- perspective transform ----------
+    M = cv.getPerspectiveTransform(ordered_points, dst)
+
+    warped = cv.warpPerspective(orig, M, (maxWidth, maxHeight))
+    gray = cv.cvtColor(warped, cv.COLOR_BGR2GRAY)
+
+    print(pt.image_to_string(gray, lang="eng"))
+
+    return warped
