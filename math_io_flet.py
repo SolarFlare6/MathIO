@@ -1,9 +1,42 @@
 import flet
-from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker
-from image_proccesing import process_image
-# global variables
+from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing
+import cv2
+import threading
+from io import BytesIO
+import base64
+import time
+import os
+import PIL
+
+# latex ocr import
+from pix2tex.cli import LatexOCR
+
+# adjust for dark theme latex rendering to be white
+
+# import mathplot lib without gui backend
+import matplotlib
+matplotlib.use("Agg")  # (no GUI backend)
+
+import matplotlib.pyplot as plt
+
+# note flet version 0.24.0
+
+
+# init latex orc model
+global_latex_ocr_model = LatexOCR()
+
+# global variables 
 global_selected_image_path = ""
 global_image_selected = False
+
+# temp img vars
+global_temp_equation_path = ""
+global_temp_img_index = 0
+global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
+
+# global thread vars
+stop_event = threading.Event()
+last_points = None
 
 def main(page: Page):
     page.title = "Math I/O"
@@ -13,6 +46,324 @@ def main(page: Page):
 
     # define functions
 
+    # turn image input into latex
+    def img_to_latex(image_path):
+        print("Running image to latex function !!!")
+        try:
+
+            # open image
+            img = PIL.Image.open(image_path)
+
+            # extract latex
+            latex = global_latex_ocr_model(img)
+
+            print("Detected Latex : ", latex)
+            
+            return latex
+        except Exception as e:
+            print("Latex OCR Error : ", e)
+            return None
+
+    def run_ocr_thread(img_path):
+        def task():
+
+            result_latex = img_to_latex(img_path)
+
+            if (result_latex):
+                extracted_eqation_latex_field.value = result_latex
+                page.update()
+                render_latex_to_image()
+        
+        threading.Thread(target=task,daemon=True).start()
+    
+    # turn latex input into png
+    def latex_to_png_file(latex_str,output_path=global_temp_equation_file_name):
+        print("Running latex to png !!!")
+        
+        try:
+            
+            fig = plt.figure(figsize=(2, 1))
+            fig.patch.set_alpha(0)
+            
+            
+            if (page.theme_mode == "light"):
+                print("Setting text as black for light mode.")
+                plt.text(
+                    0.5,
+                    0.5,
+                    rf"${latex_str}$",
+                    fontsize=30,
+                    ha="center",
+                    va="center",
+                    color="black"
+                )
+            if (page.theme_mode == "dark"):
+                print("Setting text as white for dark mode.")
+                plt.text(
+                    0.5,
+                    0.5,
+                    rf"${latex_str}$",
+                    fontsize=30,
+                    ha="center",
+                    va="center",
+                    color="white"
+                )
+            
+            plt.axis("off")
+            
+            plt.savefig(
+                output_path,
+                format="png",
+                bbox_inches="tight",
+                pad_inches=0.1,
+                transparent=True,
+                dpi=300
+            )
+            
+            plt.close(fig)
+            
+            return output_path
+        
+        except Exception as e:
+            print("Error while converting latex to png : ", e)
+            set_snackbar("Error : " + str(e),False,None)
+
+    # delete the temp img fn
+    def delete_rendered_equation():
+        print("Called the function to delete the temporary file")
+
+        try:
+
+            image_path = global_temp_equation_path
+
+            print("Image path to be deleted : ", image_path)
+
+            latex_render_img.src = "render_place_holder.png"
+            page.update()
+
+            if (os.path.exists(image_path)):
+                os.remove(image_path)
+                print("deleted temporary file.")
+        
+        except Exception as e:
+            print(e)
+    
+    # fn for cropping new (has better scaling and can morph with right click)
+    def get_4_crop_points(image_path, stop_event):
+        
+        img = cv2.imread(image_path)
+        
+        if img is None:
+            print("Failed to load image")
+            return None
+        
+        h, w = img.shape[:2]
+        
+        # scale to fit screen
+        max_w, max_h = 1000, 700
+        scale = min(max_w / w, max_h / h, 1.0)
+        
+        view_x, view_y = 0, 0
+        dragging = False
+        last_mouse = (0, 0)
+        
+        points = []
+        
+        def mouse_callback(event, x, y, flags, param):
+            nonlocal dragging, last_mouse, view_x, view_y
+            
+            if event == cv2.EVENT_LBUTTONDOWN:
+                # convert to original coords
+                real_x = int((x + view_x) / scale)
+                real_y = int((y + view_y) / scale)
+                
+                if len(points) < 4:
+                    points.append((real_x, real_y))
+                    print(f"Point {len(points)}: {(real_x, real_y)}")
+            
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                dragging = True
+                last_mouse = (x, y)
+            
+            elif event == cv2.EVENT_MOUSEMOVE and dragging:
+                dx = x - last_mouse[0]
+                dy = y - last_mouse[1]
+                
+                view_x = max(0, min(view_x - dx, int(w * scale)))
+                view_y = max(0, min(view_y - dy, int(h * scale)))
+                
+                last_mouse = (x, y)
+            
+            elif event == cv2.EVENT_RBUTTONUP:
+                dragging = False
+        
+        cv2.namedWindow("Cropper", cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("Cropper", mouse_callback)
+        
+        while not stop_event.is_set():
+            
+            # crop visible area
+            resized = cv2.resize(img, None, fx=scale, fy=scale)
+            vh, vw = resized.shape[:2]
+            
+            x2 = min(view_x + max_w, vw)
+            y2 = min(view_y + max_h, vh)
+            
+            view = resized[view_y:y2, view_x:x2].copy()
+            
+            # draw selected points
+            for i, (px, py) in enumerate(points):
+                sx = int(px * scale) - view_x
+                sy = int(py * scale) - view_y
+                
+                if 0 <= sx < view.shape[1] and 0 <= sy < view.shape[0]:
+                    cv2.circle(view, (sx, sy), 5, (225, 110, 91), -1)
+                    cv2.putText(view, str(i+1), (sx+5, sy-5),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
+            
+            cv2.imshow("Cropper", view)
+            
+            key = cv2.waitKey(1)
+            
+            if key == 27:  # ESC
+                break
+            
+            if len(points) == 4:
+                break
+        
+        cv2.destroyAllWindows()
+        
+        if len(points) != 4:
+            print("Not enough points selected")
+            return None
+        
+        return points
+
+    # funtion for cropping (opens the window) [currently unused]
+    def get_4_crop_points_old(image_path, stop_event):
+        
+        img = cv2.imread(image_path)
+        
+        if img is None:
+            print("Failed to load image")
+            return None
+        
+        
+        clone = img.copy()
+        points = []
+        
+        def mouse_callback(event, x, y, flags, param):
+            if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
+                points.append((x, y))
+                print(f"Point {len(points)}: {(x, y)}")
+        
+        cv2.namedWindow("Cropper")
+        cv2.setMouseCallback("Cropper", mouse_callback)
+        
+        while not stop_event.is_set():
+            
+            display = clone.copy()
+            
+            # draw points - define the color and the size of the points (color is in BGR)
+            for i, (x, y) in enumerate(points):
+                cv2.circle(display, (x, y), 5, (225, 110, 91), -1)
+                cv2.putText(display, str(i+1), (x+5, y-5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
+            
+            cv2.imshow("Cropper", display)
+            
+            key = cv2.waitKey(1)
+            
+            if key == 27:  # ESC
+                break
+            
+            if len(points) == 4:
+                break
+        
+        cv2.destroyAllWindows()
+        
+        if len(points) != 4:
+            print("Not enough points selected")
+            return None
+        
+        return points  # [TL, TR, BR, BL]
+
+    
+    # funtion to run cropper
+    def run_cropper(image_path):
+        
+        global last_points
+        
+        print("Running cropper...")
+        
+        pts = get_4_crop_points(image_path, stop_event)
+        last_points = pts
+        
+        print("Selected points:", pts)
+        stop_cropper()
+    
+    # fn to start cropper thread
+    def run_cropper_start_thread(image_path):
+        
+        print("Called function to start cropper...")
+        
+        if image_path != "":
+            stop_event.clear()
+            
+            cropper_thread = threading.Thread(
+                target=run_cropper,
+                args=(image_path,),
+            )
+            
+            cropper_thread.start()
+            
+            print("Started cropper thread")
+        else:
+            print("No image selected!!!")
+    
+    # to stop the thread
+    def stop_cropper():
+        print("Stopping cropper...")
+        stop_event.set()
+        cv2.destroyAllWindows()
+    
+    # cropp button fn
+    def cropper_btn_fn(e):
+        print("Cropper button fn called !!!")
+        run_cropper_start_thread(global_selected_image_path)
+
+    
+    # simply opens the snackbar with its default content
+    def open_snackbar():
+        print("Open snackbar function called !!")
+
+        # modify bgcolor
+        if (page.theme_mode == "light"):
+            print("Adjusting for light mode")
+            info_snackbar.bgcolor = "#F8F7FF"
+        else:
+            print("Adjusting for dark mode")
+            info_snackbar.bgcolor = "#202429"
+
+        info_snackbar.open = True
+        page.update()
+
+    # close the snackbar
+    def close_snackbar():
+        print("Close snackbar function called !!")
+        info_snackbar.open = False
+        page.update()
+    
+    # show snackbar with parametars - define the text that will be displayed, does it have a progress ring and the color of the ring
+    def set_snackbar(txt,show_progress_ring, ring_color):
+        print("Called Set snackbar function !!!")
+        snackbar_text.value = txt
+        snackbar_progress_ring.visible = show_progress_ring
+        if (ring_color != None):
+            print("Changing the color or the progress ring")
+            snackbar_progress_ring.color = ring_color
+        open_snackbar()
+    
     def file_btn_fn(e):
         print("File button pressed fn called !!")
         open_file_dialog_fn()
@@ -32,6 +383,9 @@ def main(page: Page):
     # close eqation layout btn fn
     def close_eqation_layout_btn_fn(e):
         print("Close eqation layout btn pressed fn called !!")
+        
+        delete_rendered_equation()
+        
         equation_processing_layout.visible = False
         input_layout.visible = True
         # implement full logic when implementing
@@ -73,9 +427,14 @@ def main(page: Page):
 
             # update the ui
             page.update()
+
+            # show snackbar
+            set_snackbar("Text processing",True,None)
         
         if (int(radio_group.value) == 2 and global_image_selected):
             print("Showing eqation processing layout")
+
+            run_ocr_thread(global_selected_image_path)
             
             # visibility
             input_layout.visible = False
@@ -86,7 +445,40 @@ def main(page: Page):
 
             # update the ui
             page.update()
+
+            # show snacbar
+            set_snackbar("Equation processing",True,"#F53D37")
     
+    
+    # render the latex fn universal
+    def render_latex_to_image():
+        delete_rendered_equation()
+        print("Running universal render latex to png fn ...")
+        print(extracted_eqation_latex_field.value)
+        
+        global global_temp_equation_path
+        global global_temp_img_index
+
+        # get the path for the image
+        if (extracted_eqation_latex_field.value != ""):
+            
+            global_temp_img_index = global_temp_img_index + 1
+            global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
+            
+            print("global temp image index : ", global_temp_img_index)
+            print("global temp image filename : ", global_temp_equation_file_name)
+            print("global temp image path : ", global_temp_equation_path)
+
+            img_path = latex_to_png_file(extracted_eqation_latex_field.value,global_temp_equation_file_name)
+            
+            latex_render_img.src = img_path
+            global_temp_equation_path = img_path
+
+        page.update()
+    
+    # render latex btn fn
+    def render_latex_btn_fn(e):
+        render_latex_to_image()
     
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
@@ -106,10 +498,16 @@ def main(page: Page):
             # update the image path
             global_selected_image_path = selected_file
             print("global selected image path is : " + global_selected_image_path)
+            
+            # set values
             select_file_btn.text = "File selected!"
             path_lable.value = global_selected_image_path
+            cropper_button.visible = True
+
+            # update the elements
             select_file_btn.update()
             path_lable.update()
+            cropper_button.update()
 
             # set flag true
             global_image_selected = True
@@ -154,12 +552,35 @@ def main(page: Page):
         ],
     )
 
+    # define snacbar content
+
+    # the text for the snackbar
+    snackbar_text = Text("...", size=20,font_family="Roboto",weight=flet.FontWeight.W_500,color=flet.colors.ON_SURFACE)
+
+    # progress ring for snackbar
+    snackbar_progress_ring = ProgressRing(width=16,height=16,stroke_width=3,color="#0D96FF")
+
+    # progress ring
+
+    snackbar_content = Row(
+        [
+            snackbar_text,
+            snackbar_progress_ring
+        ],
+    )
+
+    # define snackbar
+    info_snackbar = SnackBar(
+        content=snackbar_content,
+    )
+    
+    
     # define other layouts
 
     # define input layout widgets
 
     select_file_btn = ElevatedButton(
-        text="File",
+        text="Open file",
         #bgcolor="transparent",
         color="#0D96FF", # text color
         width=500,
@@ -182,7 +603,17 @@ def main(page: Page):
         on_click=file_btn_fn,
     )
 
+    # to show the imagepath
     path_lable = Text("", size=10,font_family="Roboto",weight=flet.FontWeight.BOLD,color="#0D96FF")
+
+    # mini cropper button
+    cropper_button = IconButton(
+        icon=icons.CROP,
+        icon_color="#0D96FF",
+        tooltip="Crop image",
+        on_click=cropper_btn_fn
+    )
+    cropper_button.visible = False
 
     radio_group = RadioGroup(
         content=Row(
@@ -193,7 +624,7 @@ def main(page: Page):
                     label_style=flet.TextStyle(
                         size=25,
                         weight=flet.FontWeight.W_700,
-                        font_family="Roboto"
+                        font_family="Roboto",
                     )
                 ),
                 Radio(
@@ -244,7 +675,7 @@ def main(page: Page):
             # define big title
             Column(
                 [
-                    Text("Select or drag and drop an", size=40,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                    Text("For processing select an", size=40,font_family="Roboto",weight=flet.FontWeight.BOLD),
                     Text("image", size=40,font_family="Roboto",weight=flet.FontWeight.BOLD,color="#0D96FF"),
                 ],
                 alignment=flet.MainAxisAlignment.CENTER,
@@ -258,7 +689,14 @@ def main(page: Page):
             Column(
                 [
                     select_file_btn,
-                    path_lable
+                    Row(
+                        [
+                            path_lable,
+                            Container(width=1),
+                            cropper_button,
+                        ],
+                        alignment=flet.MainAxisAlignment.CENTER,
+                    ),
                 ],
                 alignment=flet.MainAxisAlignment.CENTER,
                 horizontal_alignment=flet.CrossAxisAlignment.CENTER
@@ -287,7 +725,7 @@ def main(page: Page):
     
     eqation_img = Image(
         src="eqation.png", # path to image
-        fit=flet.ImageFit.COVER,
+        fit=flet.ImageFit.FILL,
         border_radius=20,
     )
     
@@ -300,13 +738,36 @@ def main(page: Page):
         border_radius=flet.border_radius.all(20),
     )
 
-    extracted_eqation_label = Text("...", size=20,font_family="Roboto",weight=flet.FontWeight.W_600)
+    extracted_eqation_latex_field = TextField("...",expand=True,border_width=0,hint_text="latex formula here",on_submit=render_latex_btn_fn)
+
+    render_latex_btn = IconButton(
+        icon=icons.ARROW_CIRCLE_DOWN_ROUNDED,
+        icon_size=35,
+        tooltip="render latex",
+        icon_color="#AA5959",
+        on_click=render_latex_btn_fn
+    )
+
+    latex_render_img = Image(
+        src="render_place_holder.png",
+        border_radius=20,
+        fit=flet.ImageFit.CONTAIN,       
+    )
+
+    latex_render_conatainer = Container(
+        width=500,
+        height=150,
+        content=latex_render_img,
+        padding=10,
+        bgcolor=flet.colors.SURFACE_VARIANT,
+        border_radius=flet.border_radius.all(20)
+    )
 
     eqation_caluclate_btn = ElevatedButton(
         text="Calculate",
         #bgcolor="transparent",
         color="#F53D37", # text color
-        width=500,
+        width=250,
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
@@ -330,7 +791,7 @@ def main(page: Page):
         text="Close",
         #bgcolor="transparent",
         color=flet.colors.ON_SURFACE, # text color
-        width=500,
+        width=250,
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
@@ -358,26 +819,46 @@ def main(page: Page):
             Column(
                 [
                     # title for extracted eqation layout
-                    Text("Extracted equation :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                    Text("Latex form :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
                     
                     # spacer
                     Container(height=5),
                     
-                    # container for the extacted eqation
-                    Container(
-                        width=500,
-                        height=150,
-                        content=extracted_eqation_label,
-                        padding=10,
-                        bgcolor=flet.colors.SURFACE_VARIANT,
-                        border_radius=flet.border_radius.all(20)
+                    # row for latex field and render button
+                    Row(
+                        [
+                            # container for the extacted eqation
+                            Container(
+                                width=500,
+                                height=70,
+                                content=extracted_eqation_latex_field,
+                                padding=10,
+                                bgcolor=flet.colors.SURFACE_VARIANT,
+                                border_radius=flet.border_radius.all(20)
+                            ),
+
+                            # render latex button
+                            render_latex_btn,
+                        ],
+                        alignment=flet.MainAxisAlignment.CENTER,
                     ),
 
                     # spacer
                     Container(height=10),
 
-                    # button column
-                    Column(
+                    # rendered latex output in image form
+                    
+                    # label for rendered eqation
+                    Text("Rendered equation :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
+
+                    # render latex conatiner
+                    latex_render_conatainer,
+
+                    # spacer
+                    Container(height=10),
+
+                    # button row
+                    Row(
                         [
                             eqation_caluclate_btn,
                             close_eqation_layout_btn,
@@ -408,7 +889,7 @@ def main(page: Page):
         border_radius=flet.border_radius.all(20),
     )
 
-    extracted_text_label = Text("...", size=20,font_family="Roboto",weight=flet.FontWeight.W_600)
+    extracted_text_field = TextField("...",expand=True,border_width=0,multiline=True,hint_text="extracted text",read_only=True)
 
     copy_txt_btn = ElevatedButton(
         text="Copy",
@@ -500,7 +981,7 @@ def main(page: Page):
                     Container(
                         width=500,
                         height=150,
-                        content=extracted_text_label,
+                        content=extracted_text_field,
                         padding=10,
                         bgcolor=flet.colors.SURFACE_VARIANT,
                         border_radius=flet.border_radius.all(20)
@@ -525,6 +1006,14 @@ def main(page: Page):
     )
     text_processing_layout.visible = False
 
+    # cropping layout
+    cropping_layout = Column(
+        [
+
+        ],
+        alignment=flet.MainAxisAlignment.CENTER
+    )
+
 
 
     # define the main column
@@ -542,6 +1031,9 @@ def main(page: Page):
     # def file picker
     file_picker = flet.FilePicker(on_result=on_file_selected)
 
+    # append snackbar
+    page.snack_bar = info_snackbar
+
     # append to page
     page.overlay.append(file_picker)
 
@@ -550,6 +1042,6 @@ def main(page: Page):
         main_column
     )
 
-flet.app(target=main)
+#flet.app(target=main)
 #flet.app(target=main, view=flet.WEB_BROWSER, assets_dir="assets") # you can comment the line above and uncomment this line to run it in a browser
-#flet.app(target=main, assets_dir="assets") # when assets are used
+flet.app(target=main, assets_dir="assets") # when assets are used
