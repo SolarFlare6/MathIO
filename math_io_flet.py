@@ -6,8 +6,12 @@ from io import BytesIO
 import base64
 import time
 import os
+import PIL
 
-# TODO : implement equation image to latex conversion
+# latex ocr import
+from pix2tex.cli import LatexOCR
+
+# adjust for dark theme latex rendering to be white
 
 # import mathplot lib without gui backend
 import matplotlib
@@ -17,13 +21,18 @@ import matplotlib.pyplot as plt
 
 # note flet version 0.24.0
 
+
+# init latex orc model
+global_latex_ocr_model = LatexOCR()
+
 # global variables 
 global_selected_image_path = ""
 global_image_selected = False
 
 # temp img vars
-global_temp_equation_file_name = "equ_temp.png"
 global_temp_equation_path = ""
+global_temp_img_index = 0
+global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
 
 # global thread vars
 stop_event = threading.Event()
@@ -37,36 +46,87 @@ def main(page: Page):
 
     # define functions
 
+    # turn image input into latex
+    def img_to_latex(image_path):
+        print("Running image to latex function !!!")
+        try:
+
+            # open image
+            img = PIL.Image.open(image_path)
+
+            # extract latex
+            latex = global_latex_ocr_model(img)
+
+            print("Detected Latex : ", latex)
+            
+            return latex
+        except Exception as e:
+            print("Latex OCR Error : ", e)
+            return None
+
+    def run_ocr_thread(img_path):
+        def task():
+
+            result_latex = img_to_latex(img_path)
+
+            if (result_latex):
+                extracted_eqation_latex_field.value = result_latex
+                page.update()
+                render_latex_to_image()
+        
+        threading.Thread(target=task,daemon=True).start()
+    
+    # turn latex input into png
     def latex_to_png_file(latex_str,output_path=global_temp_equation_file_name):
-        print("Running latex to base64 fn !!!")
+        print("Running latex to png !!!")
         
-        fig = plt.figure(figsize=(2, 1))
-        fig.patch.set_alpha(0)
+        try:
+            
+            fig = plt.figure(figsize=(2, 1))
+            fig.patch.set_alpha(0)
+            
+            
+            if (page.theme_mode == "light"):
+                print("Setting text as black for light mode.")
+                plt.text(
+                    0.5,
+                    0.5,
+                    rf"${latex_str}$",
+                    fontsize=30,
+                    ha="center",
+                    va="center",
+                    color="black"
+                )
+            if (page.theme_mode == "dark"):
+                print("Setting text as white for dark mode.")
+                plt.text(
+                    0.5,
+                    0.5,
+                    rf"${latex_str}$",
+                    fontsize=30,
+                    ha="center",
+                    va="center",
+                    color="white"
+                )
+            
+            plt.axis("off")
+            
+            plt.savefig(
+                output_path,
+                format="png",
+                bbox_inches="tight",
+                pad_inches=0.1,
+                transparent=True,
+                dpi=300
+            )
+            
+            plt.close(fig)
+            
+            return output_path
         
-        plt.text(
-            0.5,
-            0.5,
-            rf"${latex_str}$",
-            fontsize=30,
-            ha="center",
-            va="center",
-            color="black"
-        )
-        
-        plt.axis("off")
-        
-        plt.savefig(
-            output_path,
-            format="png",
-            bbox_inches="tight",
-            pad_inches=0.1,
-            transparent=True,
-            dpi=300
-        )
-        
-        plt.close(fig)
-        
-        return output_path
+        except Exception as e:
+            print("Error while converting latex to png : ", e)
+            set_snackbar("Error : " + str(e),False,None)
 
     # delete the temp img fn
     def delete_rendered_equation():
@@ -74,11 +134,15 @@ def main(page: Page):
 
         try:
 
+            image_path = global_temp_equation_path
+
+            print("Image path to be deleted : ", image_path)
+
             latex_render_img.src = "render_place_holder.png"
             page.update()
 
-            if (os.path.exists(global_temp_equation_path)):
-                os.remove(global_temp_equation_path)
+            if (os.path.exists(image_path)):
+                os.remove(image_path)
                 print("deleted temporary file.")
         
         except Exception as e:
@@ -362,6 +426,8 @@ def main(page: Page):
         
         if (int(radio_group.value) == 2 and global_image_selected):
             print("Showing eqation processing layout")
+
+            run_ocr_thread(global_selected_image_path)
             
             # visibility
             input_layout.visible = False
@@ -377,22 +443,35 @@ def main(page: Page):
             set_snackbar("Equation processing",True,"#F53D37")
     
     
-    # render latex btn fn
-    def render_latex_btn_fn(e):
+    # render the latex fn universal
+    def render_latex_to_image():
+        delete_rendered_equation()
+        print("Running universal render latex to png fn ...")
+        print(extracted_eqation_latex_field.value)
         
         global global_temp_equation_path
-        
-        print("Render latex btn function called !!!")
+        global global_temp_img_index
 
         # get the path for the image
         if (extracted_eqation_latex_field.value != ""):
             
-            img_path = latex_to_png_file(extracted_eqation_latex_field.value)
+            global_temp_img_index = global_temp_img_index + 1
+            global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
+            
+            print("global temp image index : ", global_temp_img_index)
+            print("global temp image filename : ", global_temp_equation_file_name)
+            print("global temp image path : ", global_temp_equation_path)
+
+            img_path = latex_to_png_file(extracted_eqation_latex_field.value,global_temp_equation_file_name)
             
             latex_render_img.src = img_path
             global_temp_equation_path = img_path
 
         page.update()
+    
+    # render latex btn fn
+    def render_latex_btn_fn(e):
+        render_latex_to_image()
     
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
@@ -639,7 +718,7 @@ def main(page: Page):
     
     eqation_img = Image(
         src="eqation.png", # path to image
-        fit=flet.ImageFit.COVER,
+        fit=flet.ImageFit.FILL,
         border_radius=20,
     )
     
@@ -652,7 +731,7 @@ def main(page: Page):
         border_radius=flet.border_radius.all(20),
     )
 
-    extracted_eqation_latex_field = TextField("...",expand=True,border_width=0,hint_text="latex formula here")
+    extracted_eqation_latex_field = TextField("...",expand=True,border_width=0,hint_text="latex formula here",on_submit=render_latex_btn_fn)
 
     render_latex_btn = IconButton(
         icon=icons.ARROW_CIRCLE_DOWN_ROUNDED,
