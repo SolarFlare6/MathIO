@@ -417,7 +417,14 @@ def main(page: Page):
             
             # set image source
             text_img.src = global_selected_image_path
-            
+
+            # call the image proccess function
+            try:
+                result = process_image(global_selected_image_path, debug=True)
+                print(result)
+            except Exception as e:
+                print(e)
+
             # update the ui
             page.update()
 
