@@ -19,6 +19,8 @@ matplotlib.use("Agg")  # (no GUI backend)
 
 import matplotlib.pyplot as plt
 
+from image_proccesing import process_image, warp_perspective_image
+
 # note flet version 0.24.0
 
 
@@ -410,6 +412,7 @@ def main(page: Page):
         # implement logic fully later
         if (int(radio_group.value) == 1 and global_image_selected):
             print("Showing text processing layout")
+            #OVDEEE
             
             # set visibility of layouts
             input_layout.visible = False
@@ -420,7 +423,7 @@ def main(page: Page):
 
             # call the image proccess function
             try:
-                result = process_image(global_selected_image_path, debug=True,) # VERIFY ARGUMENT IMPORTANT. Will make the function like a second one
+                result = process_image(global_selected_image_path, debug=False, verify=True) # VERIFY ARGUMENT IMPORTANT. Will make the function like a second one
                 print(result)
             except Exception as e:
                 print(e)

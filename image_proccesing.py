@@ -329,7 +329,11 @@ def process_image(selected_image_path, lang="eng", debug=False, verify=False):
                    {"data": paper_display, "title": "Pre-processed A4 Paper Display"},
                    {"data": orig, "title": "Before: Original Image"},
                    {"data": warped, "title": "After:A4 Warped Perspective"},)
-    return pt.image_to_string(warped, lang=lang) # Result send in string format
+    # ---------- RETURN GREYSCALE WARPED IMAGE ----------
+    gray_warped = warped.copy()
+    gray_warped = cv.cvtColor(gray_warped, cv.COLOR_BGR2GRAY)
+
+    return gray_warped
 
 
 def warp_perspective_image(selected_image_path, points):
