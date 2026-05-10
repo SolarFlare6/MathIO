@@ -1,5 +1,5 @@
 import flet
-from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing, Dropdown, Divider, ExpansionTile
+from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing, Dropdown, Divider, ExpansionTile, AlertDialog
 import cv2
 import threading
 from io import BytesIO
@@ -14,9 +14,9 @@ from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solutio
 from pix2tex.cli import LatexOCR
 
 # Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
-# TODO : implment verification popup menu 
-# TODO : add try catch for cropper function to help diagnose problem for ogi
-# TODO : implement save and copy text buttons
+# TODO : finish the alignment of the solution element
+# TODO : Implement the logic for verify menu
+
 
 # import mathplot lib without gui backend
 import matplotlib
@@ -214,94 +214,102 @@ def main(page: Page):
     
     # fn for cropping new (has better scaling and can morph with right click)
     def get_4_crop_points(image_path, stop_event):
+        try:
+            
+            img = cv2.imread(image_path)
+            
+            if img is None:
+                print("Failed to load image")
+                return None
+            
+            h, w = img.shape[:2]
+            
+            # scale to fit screen
+            max_w, max_h = 1000, 700
+            scale = min(max_w / w, max_h / h, 1.0)
+            
+            view_x, view_y = 0, 0
+            dragging = False
+            last_mouse = (0, 0)
+            
+            points = []
+            
+            def mouse_callback(event, x, y, flags, param):
+                
+                nonlocal dragging, last_mouse, view_x, view_y
+                
+                if event == cv2.EVENT_LBUTTONDOWN:
+                    # convert to original coords
+                    real_x = int((x + view_x) / scale)
+                    real_y = int((y + view_y) / scale)
+                    
+                    if len(points) < 4:
+                        points.append((real_x, real_y))
+                        print(f"Point {len(points)}: {(real_x, real_y)}")
+                
+                elif event == cv2.EVENT_RBUTTONDOWN:
+                    dragging = True
+                    last_mouse = (x, y)
+                
+                elif event == cv2.EVENT_MOUSEMOVE and dragging:
+                    dx = x - last_mouse[0]
+                    dy = y - last_mouse[1]
+                    
+                    view_x = max(0, min(view_x - dx, int(w * scale)))
+                    view_y = max(0, min(view_y - dy, int(h * scale)))
+                    
+                    last_mouse = (x, y)
+                
+                elif event == cv2.EVENT_RBUTTONUP:
+                    dragging = False
+            
+            cv2.namedWindow("Cropper", cv2.WINDOW_NORMAL)
+            cv2.setMouseCallback("Cropper", mouse_callback)
+            
+            while not stop_event.is_set():
+                
+                # crop visible area
+                resized = cv2.resize(img, None, fx=scale, fy=scale)
+                vh, vw = resized.shape[:2]
+                
+                x2 = min(view_x + max_w, vw)
+                y2 = min(view_y + max_h, vh)
+                
+                view = resized[view_y:y2, view_x:x2].copy()
+                
+                # draw selected points
+                for i, (px, py) in enumerate(points):
+                    
+                    sx = int(px * scale) - view_x
+                    sy = int(py * scale) - view_y
+                    
+                    if 0 <= sx < view.shape[1] and 0 <= sy < view.shape[0]:
+                        cv2.circle(view, (sx, sy), 5, (225, 110, 91), -1)
+                        cv2.putText(view, str(i+1), (sx+5, sy-5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
+                
+                cv2.imshow("Cropper", view)
+                
+                key = cv2.waitKey(1)
+                
+                if key == 27:  # ESC
+                    break
+                
+                if len(points) == 4:
+                    break
+            
+            cv2.destroyAllWindows()
+            
+            if len(points) != 4:
+                print("Not enough points selected")
+                return None
+            
+            return points
         
-        img = cv2.imread(image_path)
-        
-        if img is None:
-            print("Failed to load image")
+        except Exception as e:
+            print("get 4 crop points error : ", e)
+            set_snackbar("Crop error : "+str(e),False,None)
             return None
-        
-        h, w = img.shape[:2]
-        
-        # scale to fit screen
-        max_w, max_h = 1000, 700
-        scale = min(max_w / w, max_h / h, 1.0)
-        
-        view_x, view_y = 0, 0
-        dragging = False
-        last_mouse = (0, 0)
-        
-        points = []
-        
-        def mouse_callback(event, x, y, flags, param):
-            nonlocal dragging, last_mouse, view_x, view_y
-            
-            if event == cv2.EVENT_LBUTTONDOWN:
-                # convert to original coords
-                real_x = int((x + view_x) / scale)
-                real_y = int((y + view_y) / scale)
-                
-                if len(points) < 4:
-                    points.append((real_x, real_y))
-                    print(f"Point {len(points)}: {(real_x, real_y)}")
-            
-            elif event == cv2.EVENT_RBUTTONDOWN:
-                dragging = True
-                last_mouse = (x, y)
-            
-            elif event == cv2.EVENT_MOUSEMOVE and dragging:
-                dx = x - last_mouse[0]
-                dy = y - last_mouse[1]
-                
-                view_x = max(0, min(view_x - dx, int(w * scale)))
-                view_y = max(0, min(view_y - dy, int(h * scale)))
-                
-                last_mouse = (x, y)
-            
-            elif event == cv2.EVENT_RBUTTONUP:
-                dragging = False
-        
-        cv2.namedWindow("Cropper", cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback("Cropper", mouse_callback)
-        
-        while not stop_event.is_set():
-            
-            # crop visible area
-            resized = cv2.resize(img, None, fx=scale, fy=scale)
-            vh, vw = resized.shape[:2]
-            
-            x2 = min(view_x + max_w, vw)
-            y2 = min(view_y + max_h, vh)
-            
-            view = resized[view_y:y2, view_x:x2].copy()
-            
-            # draw selected points
-            for i, (px, py) in enumerate(points):
-                sx = int(px * scale) - view_x
-                sy = int(py * scale) - view_y
-                
-                if 0 <= sx < view.shape[1] and 0 <= sy < view.shape[0]:
-                    cv2.circle(view, (sx, sy), 5, (225, 110, 91), -1)
-                    cv2.putText(view, str(i+1), (sx+5, sy-5),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
-            
-            cv2.imshow("Cropper", view)
-            
-            key = cv2.waitKey(1)
-            
-            if key == 27:  # ESC
-                break
-            
-            if len(points) == 4:
-                break
-        
-        cv2.destroyAllWindows()
-        
-        if len(points) != 4:
-            print("Not enough points selected")
-            return None
-        
-        return points
 
     # funtion for cropping (opens the window) [currently unused]
     def get_4_crop_points_old(image_path, stop_event):
@@ -703,6 +711,32 @@ def main(page: Page):
 
         page.update()
      
+    # open verify menu fn
+    def open_verify_menu():
+        print("Open verify menu fn called !!!")
+        page.dialog = verify_alert_dialog
+        verify_alert_dialog.open = True
+        page.update()
+    
+    # close verify menu fn
+    def close_verify_menu():
+        print("Called close verify menu fn !!!")
+        page.dialog = verify_alert_dialog
+        verify_alert_dialog.open = False
+        page.update()
+    
+    # continue verify btn fn
+    def verify_continue_btn_fn(e):
+        print("Called verify continue btn fn !!!")
+    
+    # verify crop btn fn
+    def verify_crop_btn_fn(e):
+        print("Called verify crop btn fn !!!")
+
+    def ver_menu_item_fn(e):
+        print("Running version menu item fn !!!")
+        open_verify_menu()
+    
     # destroy solution ui
     def destroy_solution_ui():
         print("Destroying the solution widgets inside steps_column !!!")
@@ -778,6 +812,110 @@ def main(page: Page):
 
     # define widgets
 
+    # define verify dialog image
+    verify_img = Image(
+        fit=flet.ImageFit.FILL,
+        border_radius=30,
+    )
+
+    verify_img_container = Container(
+        width=250,
+        height=250,
+        content=verify_img,
+        padding=10,
+        bgcolor=flet.colors.SURFACE_VARIANT,
+        border_radius=flet.border_radius.all(20)
+    )
+
+    # define verify dialog buttons
+    verify_continue_btn = ElevatedButton(
+        text="Continue",
+        #bgcolor="transparent",
+        color="#0D96FF", # text color
+        width=150,
+        height=60,
+        style=flet.ButtonStyle(
+            shape=flet.RoundedRectangleBorder(radius=20),
+            
+            side=flet.BorderSide(
+                width=2,
+                color="#0D96FF" # border color
+            ),
+            
+            text_style=flet.TextStyle(
+                size=20,
+                weight=flet.FontWeight.W_700,
+                font_family="Roboto"
+            ),
+
+        ),
+        on_click=verify_continue_btn_fn,
+    )
+
+    verify_crop_btn = ElevatedButton(
+        text="Crop",
+        #bgcolor="transparent",
+        color=flet.colors.ON_SURFACE, # text color
+        width=120,
+        height=60,
+        style=flet.ButtonStyle(
+            shape=flet.RoundedRectangleBorder(radius=20),
+            
+            side=flet.BorderSide(
+                width=2,
+                color=flet.colors.ON_SURFACE # border color
+            ),
+            
+            text_style=flet.TextStyle(
+                size=20,
+                weight=flet.FontWeight.W_700,
+                font_family="Roboto"
+            ),
+
+        ),
+        on_click=verify_crop_btn_fn,
+    )
+
+
+    # Alert dialog
+    verify_alert_dialog = AlertDialog(
+        title=Column(
+            [
+                Text("Verify", size=20,font_family="Roboto",weight=flet.FontWeight.BOLD),
+            ],
+            alignment=flet.MainAxisAlignment.CENTER,
+            horizontal_alignment=flet.CrossAxisAlignment.CENTER,
+        ),
+        content=Column(
+            [
+                # explanation text
+                Text("Check if the points are good if not manually crop them", size=15,font_family="Roboto",weight=flet.FontWeight.W_600),
+
+                # spacer
+                Container(height=10),
+
+                # image to display
+                verify_img_container,
+
+                # spacer
+                Container(height=5),
+
+                # buttons layout
+                Row(
+                    [
+                        verify_continue_btn,
+                        Container(height=3),
+                        verify_crop_btn,
+                    ],
+                    alignment=flet.MainAxisAlignment.CENTER,
+                ),
+            ],
+            alignment=flet.MainAxisAlignment.CENTER,
+            horizontal_alignment=flet.CrossAxisAlignment.CENTER,
+        ),
+        on_dismiss=verify_continue_btn_fn,
+    )
+
     # widgets for popup menu items
     verify_switch = Switch()
     debug_switch = Switch()
@@ -822,7 +960,7 @@ def main(page: Page):
                         on_click=debug_menu_item_fn,
                     ),
                     PopupMenuItem(), # devider
-                    PopupMenuItem(text="Version : 1.0v"),
+                    PopupMenuItem(text="Version : 1.0v",on_click=ver_menu_item_fn),
                 ]
 
             )
