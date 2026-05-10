@@ -8,7 +8,7 @@ import time
 import os
 import PIL
 from image_proccesing import process_image, warp_perspective_image
-from ai_engine import image_to_string
+from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection
 
 # latex ocr import
 from pix2tex.cli import LatexOCR
@@ -33,6 +33,8 @@ global_latex_ocr_model = LatexOCR()
 # global variables 
 global_selected_image_path = ""
 global_image_selected = False
+global_verify_path = None
+global_result_latex = None
 
 # temp img vars
 global_temp_equation_path = ""
@@ -72,44 +74,65 @@ def main(page: Page):
             return None
 
     def run_text_processing():
-        print("Running text processing ...")
-        def processing_task():
-
-            global global_graywarp
-
-            print("running task :")
+        def background_task():
+            global global_graywarp  # ADD THIS LINE
+            print("Running text processing ...")
             try:
-                if (global_warped_perp_obj is None):
-                    graywarp = process_image(global_selected_image_path,debug=debug_switch.value,verify=verify_switch.value)
+                if global_warped_perp_obj is None:
+                    # VERIFY MODE:
+                    # When verify=True, process_image() returns:
+                    # (verify_image_path, detected_points)
+                    #
+                    # The returned image contains the detected paper corner points,
+                    # allowing the user to visually confirm that the document detection is correct.
+                    #
+                    # DEFAULT FLOW:
+                    # - If debug=False:
+                    #     call warp_perspective_image() using:
+                    #         global_selected_image_path + detected points
+                    #
+                    # - If debug=True:
+                    #     call process_image() again without verify=True
+                    #     so the full debug visualization pipeline can run.
+                    if verify_switch.value:
+                        path_verify,points = process_image(global_selected_image_path, debug=debug_switch.value, verify=verify_switch.value)
+                        global global_verify_path
+                        global_verify_path = path_verify
+                        # TODO: Make Verify Window PopUp and based on the user's decision. Either Continue and call warp_perspective or Manual Crop Window.
+                        # TODO: Heavily needs to be updated so it can work with the new PopUp
+                    else:
+                        graywarp = process_image(global_selected_image_path, debug=debug_switch.value, verify=verify_switch.value)
                     print(type(graywarp))
                     global_graywarp = graywarp
             except Exception as e:
                 print("Error from processing task : ", e)
-                set_snackbar(e,False,None)
-        
-        processing_task()
+                set_snackbar(e, False, None)
+                return
 
-        # image to str
-        try:
-            if (global_warped_perp_obj is not None):
-                extracted_text_field.value = image_to_string(global_warped_perp_obj)
-                print("Running image to str with global_warped_perp_obj")
-            else:
-                 extracted_text_field.value = image_to_string(global_graywarp)
-                 print("Running image to str with global_graywarp")
-            print("Value set to text field...")
-        except Exception as e:
-            print("Exception : ",e)
-            set_snackbar(e,False,None)
+            # image to str
+            try:
+                if global_warped_perp_obj is not None:
+                    extracted_text_field.value = image_to_string(global_warped_perp_obj)
+                    print("Running image to str with global_warped_perp_obj")
+                else:
+                    extracted_text_field.value = image_to_string(global_graywarp)
+                    print("Running image to str with global_graywarp")
+                print("Value set to text field...")
+                page.update()
+            except Exception as e:
+                print("Exception : ", e)
+                set_snackbar(e, False, None)
 
-        page.update()
+        thread = threading.Thread(target=background_task, daemon=True)
+        thread.start()
 
     
     def run_ocr_thread(img_path):
         def task():
 
             result_latex = img_to_latex(img_path)
-
+            global global_result_latex
+            global_result_latex = result_latex
             if (result_latex):
                 extracted_eqation_latex_field.value = result_latex
                 page.update()
@@ -543,12 +566,14 @@ def main(page: Page):
     def render_latex_btn_fn(e):
         render_latex_to_image()
     
-    # eqation calculate btn fn
+    # eqation calculate btn fn. OGNEN TUKA!
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
+        expression, answer = latex_to_expr_and_answer(global_result_latex)
         delete_rendered_equation()
+        add_in_placeholder_steps(expression, answer)
         show_solution_layout()
-        add_in_placeholder_steps()
+
     
     
     def close_solution_layout_fn(e):
@@ -732,11 +757,21 @@ def main(page: Page):
             )
         )
         page.update()
-    
-    def add_in_placeholder_steps():
-        for i in range(10):
-            build_solution_ui(i,"x+5="+str(i),"opisuvam nesto "+str(i))
-    
+
+    # TODO: IMPLEMENT THE SOLUTION ANSWER FROM OLLAMA MODEl
+    def add_in_placeholder_steps(expression, answer):
+        try:
+            if verifyConnection():
+                response = explain_solution_with_ollama(expression, answer, solution_type = "JSON")
+                expression = response["expression"]
+                answer = response["answer"]
+                steps = response["steps"]
+                print(len(response["steps"]))
+                for i in range(len(steps)):
+                    build_solution_ui(i,steps[i]["situation"],steps[i]["explanation"])
+        except Exception as e:
+            # TODO: Handle The Exception
+            print(e)
     # define vars
 
     # define appbar

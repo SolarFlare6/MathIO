@@ -378,4 +378,4 @@ def warp_perspective_image(selected_image_path, points):
 
     print(pt.image_to_string(gray, lang="eng"))
 
-    return warped
+    return gray

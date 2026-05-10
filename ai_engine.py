@@ -174,7 +174,7 @@ def explain_solution_with_ollama(expression, answer,solution_type = "Text",model
             clean_answer = clean_json(raw_answer)
             parsed_answer = json.loads(clean_answer)
             if isinstance(parsed_answer, dict):
-                return clean_answer
+                return parsed_answer
             else:
                 raise Exception("Ollama Model Error. Did not send proper JSON. TRY AGAIN!!!")
         else:
@@ -185,7 +185,7 @@ def explain_solution_with_ollama(expression, answer,solution_type = "Text",model
 
 
 
-# print(explain_solution_with_ollama("x*2 = 10", 5, solution_type = "JSON"))
+print(type(explain_solution_with_ollama("x*2 = 10", 5, solution_type = "JSON")))
 
 
 # ---------- LATEX & SymPy FUNCTIONS ----------
@@ -223,4 +223,4 @@ def image_to_string(greyscale_image, lang="eng"): # lang = eng || mkd
     else:
         raise TypeError("Expected Numpy Array!")
 
-print(latex_to_expr_and_answer(r"{\frac{11+x}{x^{3}}}+2x(5-x)"))
+# print(latex_to_expr_and_answer(r"{\frac{11+x}{x^{3}}}+2x(5-x)"))
