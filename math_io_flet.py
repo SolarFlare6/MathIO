@@ -371,7 +371,14 @@ def main(page: Page):
         stop_event.set()
         cv2.destroyAllWindows()
         # warp_perspective_image(selected_image_path, points) call
-        global_warped_perp_obj = warp_perspective_image(global_selected_image_path,last_points)
+        if (last_points != None):
+            print("running warped perspective with coords "+ str(last_points))
+            global_warped_perp_obj = warp_perspective_image(global_selected_image_path,last_points)
+            set_snackbar("Saved cropping",False,None)
+        else:
+            global_warped_perp_obj = None
+            print("No points from cropper function selected")
+            set_snackbar("Cropping canceled",False,None)
     
     # cropp button fn
     def cropper_btn_fn(e):
@@ -458,9 +465,11 @@ def main(page: Page):
 
     def copy_text_btn_fn(e):
         print("Copy text btn fn called !!")
+        copy_to_clipboard(extracted_text_field.value)
     
     def save_text_btn_fn(e):
         print("Save text btn fn called !!")
+        open_save_dialog()
     
     # start btn fn
     def start_btn_fn(e):
@@ -545,6 +554,19 @@ def main(page: Page):
     def close_solution_layout_fn(e):
         print("Called close solution layout btn fn !!!")
         show_input_layout()
+        destroy_solution_ui()
+    
+    # fn to handle save file dialog result
+    def save_file_result(e: flet.FilePickerResultEvent):
+        print("Called save file dialog result fn !!!")
+        if e.path:
+            with open(e.path, "w", encoding="utf-8") as file:
+                file.write(extracted_text_field.value)
+            
+            print("Saved file : ", e.path)
+            set_snackbar("Saved text file",False,None)
+        else:
+            print("Did not save.")
     
     # fn to handle file picker result
     def on_file_selected(e: flet.FilePickerResultEvent):
@@ -573,6 +595,15 @@ def main(page: Page):
             # set flag true
             global_image_selected = True
     
+    # open save dialog
+    def open_save_dialog():
+        print("Running function to open save dialog !!!")
+        save_file_dialog.save_file(
+            dialog_title="Save extracted text",
+            file_name="extracted_text.txt",
+            allowed_extensions=["txt"]
+        )
+    
     # fn to open file dialog
     def open_file_dialog_fn():
         print("Called open file dialog fn !!!")
@@ -580,6 +611,12 @@ def main(page: Page):
             allow_multiple=False,
             allowed_extensions=["png", "jpg", "jpeg"]
         )
+    
+    # copy to clipboard fn
+    def copy_to_clipboard(txt):
+        print("Running copy to clipboard fn with str : " + txt)
+        page.set_clipboard(txt)
+        set_snackbar("Copied to clipboard",False,None)
     
     def verify_menu_item_fn(e):
         print("Called verify menu item fn !!!")
@@ -641,6 +678,12 @@ def main(page: Page):
 
         page.update()
      
+    # destroy solution ui
+    def destroy_solution_ui():
+        print("Destroying the solution widgets inside steps_column !!!")
+        steps_column.controls.clear()
+        page.update()
+    
     # fn to add in steps dynamicly
     def build_solution_ui(step_count,step_eqation,desc):
         print("Adding ui component with : " + str(step_count) + "," + step_eqation + "," + desc)
@@ -1333,11 +1376,15 @@ def main(page: Page):
     # def file picker
     file_picker = flet.FilePicker(on_result=on_file_selected)
 
+    # def save file dialog
+    save_file_dialog = flet.FilePicker(on_result=save_file_result)
+
     # append snackbar
     page.snack_bar = info_snackbar
 
     # append to page
     page.overlay.append(file_picker)
+    page.overlay.append(save_file_dialog)
 
     # add to the page - this area shows the inserted widgets
     page.add(
