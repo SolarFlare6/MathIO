@@ -1,5 +1,5 @@
 import flet
-from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing
+from flet import IconButton, Page, Row, TextField, icons, AppBar, Text, PopupMenuButton, PopupMenuItem, Switch, Container, Column, ElevatedButton, Radio, RadioGroup, Image, FilePicker, SnackBar, ProgressRing, Dropdown, Divider, ExpansionTile
 import cv2
 import threading
 from io import BytesIO
@@ -7,19 +7,22 @@ import base64
 import time
 import os
 import PIL
+from image_proccesing import process_image, warp_perspective_image
+from ai_engine import image_to_string
 
 # latex ocr import
 from pix2tex.cli import LatexOCR
 
-# adjust for dark theme latex rendering to be white
+# Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
+# TODO : implment verification popup menu 
+# TODO : add try catch for cropper function to help diagnose problem for ogi
+# TODO : implement save and copy text buttons
 
 # import mathplot lib without gui backend
 import matplotlib
 matplotlib.use("Agg")  # (no GUI backend)
 
 import matplotlib.pyplot as plt
-
-from image_proccesing import process_image, warp_perspective_image
 
 # note flet version 0.24.0
 
@@ -39,6 +42,8 @@ global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
 # global thread vars
 stop_event = threading.Event()
 last_points = None
+global_graywarp = None
+global_warped_perp_obj = None
 
 def main(page: Page):
     page.title = "Math I/O"
@@ -66,6 +71,40 @@ def main(page: Page):
             print("Latex OCR Error : ", e)
             return None
 
+    def run_text_processing():
+        print("Running text processing ...")
+        def processing_task():
+
+            global global_graywarp
+
+            print("running task :")
+            try:
+                if (global_warped_perp_obj is None):
+                    graywarp = process_image(global_selected_image_path,debug=debug_switch.value,verify=verify_switch.value)
+                    print(type(graywarp))
+                    global_graywarp = graywarp
+            except Exception as e:
+                print("Error from processing task : ", e)
+                set_snackbar(e,False,None)
+        
+        processing_task()
+
+        # image to str
+        try:
+            if (global_warped_perp_obj is not None):
+                extracted_text_field.value = image_to_string(global_warped_perp_obj)
+                print("Running image to str with global_warped_perp_obj")
+            else:
+                 extracted_text_field.value = image_to_string(global_graywarp)
+                 print("Running image to str with global_graywarp")
+            print("Value set to text field...")
+        except Exception as e:
+            print("Exception : ",e)
+            set_snackbar(e,False,None)
+
+        page.update()
+
+    
     def run_ocr_thread(img_path):
         def task():
 
@@ -301,7 +340,7 @@ def main(page: Page):
         pts = get_4_crop_points(image_path, stop_event)
         last_points = pts
         
-        print("Selected points:", pts)
+        print("Selected points:", last_points)
         stop_cropper()
     
     # fn to start cropper thread
@@ -325,9 +364,21 @@ def main(page: Page):
     
     # to stop the thread
     def stop_cropper():
+        
+        global global_warped_perp_obj
+        
         print("Stopping cropper...")
         stop_event.set()
         cv2.destroyAllWindows()
+        # warp_perspective_image(selected_image_path, points) call
+        if (last_points != None):
+            print("running warped perspective with coords "+ str(last_points))
+            global_warped_perp_obj = warp_perspective_image(global_selected_image_path,last_points)
+            set_snackbar("Saved cropping",False,None)
+        else:
+            global_warped_perp_obj = None
+            print("No points from cropper function selected")
+            set_snackbar("Cropping canceled",False,None)
     
     # cropp button fn
     def cropper_btn_fn(e):
@@ -381,6 +432,19 @@ def main(page: Page):
     # fn for radio group
     def radio_group_changed_fn(e):
         print("Radio group fn called !!")
+        print(radio_group.value)
+
+        radio_val = int(radio_group.value)
+
+        if (radio_val == 1):
+            print("Choese text processing.")
+            lang_dropdown.visible = True
+            page.update()
+        
+        if (radio_val == 2):
+            print("Choese equation processing.")
+            lang_dropdown.visible = False
+            page.update()
     
     # close eqation layout btn fn
     def close_eqation_layout_btn_fn(e):
@@ -401,9 +465,11 @@ def main(page: Page):
 
     def copy_text_btn_fn(e):
         print("Copy text btn fn called !!")
+        copy_to_clipboard(extracted_text_field.value)
     
     def save_text_btn_fn(e):
         print("Save text btn fn called !!")
+        open_save_dialog()
     
     # start btn fn
     def start_btn_fn(e):
@@ -412,7 +478,9 @@ def main(page: Page):
         # implement logic fully later
         if (int(radio_group.value) == 1 and global_image_selected):
             print("Showing text processing layout")
-            #OVDEEE
+            
+            # show snackbar
+            set_snackbar("Text processing",True,None)
             
             # set visibility of layouts
             input_layout.visible = False
@@ -421,18 +489,10 @@ def main(page: Page):
             # set image source
             text_img.src = global_selected_image_path
 
-            # call the image proccess function
-            try:
-                result = process_image(global_selected_image_path, debug=False, verify=True) # VERIFY ARGUMENT IMPORTANT. Will make the function like a second one
-                print(result)
-            except Exception as e:
-                print(e)
-
+            run_text_processing()
+            
             # update the ui
             page.update()
-
-            # show snackbar
-            set_snackbar("Text processing",True,None)
         
         if (int(radio_group.value) == 2 and global_image_selected):
             print("Showing eqation processing layout")
@@ -486,7 +546,27 @@ def main(page: Page):
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
+        delete_rendered_equation()
+        show_solution_layout()
+        add_in_placeholder_steps()
     
+    
+    def close_solution_layout_fn(e):
+        print("Called close solution layout btn fn !!!")
+        show_input_layout()
+        destroy_solution_ui()
+    
+    # fn to handle save file dialog result
+    def save_file_result(e: flet.FilePickerResultEvent):
+        print("Called save file dialog result fn !!!")
+        if e.path:
+            with open(e.path, "w", encoding="utf-8") as file:
+                file.write(extracted_text_field.value)
+            
+            print("Saved file : ", e.path)
+            set_snackbar("Saved text file",False,None)
+        else:
+            print("Did not save.")
     
     # fn to handle file picker result
     def on_file_selected(e: flet.FilePickerResultEvent):
@@ -515,6 +595,15 @@ def main(page: Page):
             # set flag true
             global_image_selected = True
     
+    # open save dialog
+    def open_save_dialog():
+        print("Running function to open save dialog !!!")
+        save_file_dialog.save_file(
+            dialog_title="Save extracted text",
+            file_name="extracted_text.txt",
+            allowed_extensions=["txt"]
+        )
+    
     # fn to open file dialog
     def open_file_dialog_fn():
         print("Called open file dialog fn !!!")
@@ -523,11 +612,142 @@ def main(page: Page):
             allowed_extensions=["png", "jpg", "jpeg"]
         )
     
+    # copy to clipboard fn
+    def copy_to_clipboard(txt):
+        print("Running copy to clipboard fn with str : " + txt)
+        page.set_clipboard(txt)
+        set_snackbar("Copied to clipboard",False,None)
+    
+    def verify_menu_item_fn(e):
+        print("Called verify menu item fn !!!")
+        if (verify_switch.value):
+            verify_switch.value = False
+        else:
+            verify_switch.value = True
+        print("Verifiy switch value : ", verify_switch.value)
+        verify_switch.update()
+    
+    def debug_menu_item_fn(e):
+        print("Called debug menu item fn !!!")
+
+        if (debug_switch.value):
+            debug_switch.value = False
+        else:
+            debug_switch.value = True
+        print("Debug switch value : ", debug_switch.value)
+        
+        debug_switch.update()
+    
+    def show_solution_layout():
+        print("Show solution layout fn called !!")
+        
+        equation_solution_layout.visible = True
+        input_layout.visible = False
+        equation_processing_layout.visible = False
+        text_processing_layout.visible = False
+
+        page.update()
+
+    def show_input_layout():
+        print("Show input layout fn called !!")
+        
+        equation_solution_layout.visible = False
+        input_layout.visible = True
+        equation_processing_layout.visible = False
+        text_processing_layout.visible = False
+
+        page.update()
+
+    def show_eqation_processing_layout():
+        print("Show equation processing layout fn called !!")
+        
+        equation_solution_layout.visible = False
+        input_layout.visible = False
+        equation_processing_layout.visible = True
+        text_processing_layout.visible = False
+
+        page.update()
+    
+    def show_text_processing_layout():
+        print("Show text processing layout fn called !!")
+        
+        equation_solution_layout.visible = False
+        input_layout.visible = False
+        equation_processing_layout.visible = False
+        text_processing_layout.visible = True
+
+        page.update()
+     
+    # destroy solution ui
+    def destroy_solution_ui():
+        print("Destroying the solution widgets inside steps_column !!!")
+        steps_column.controls.clear()
+        page.update()
+    
+    # fn to add in steps dynamicly
+    def build_solution_ui(step_count,step_eqation,desc):
+        print("Adding ui component with : " + str(step_count) + "," + step_eqation + "," + desc)
+        steps_column.controls.append(
+            Column(
+                [
+                    # Step label
+                    Text("Step "+str(step_count)+" :", size=20,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                    
+                    # spacer
+                    Container(height=10),
+                    
+                    # Expansion tile
+                    Container(
+                        width=780,
+                        bgcolor=flet.colors.SURFACE_VARIANT,
+                        border_radius=10,
+                        padding=15,
+                        content=ExpansionTile(
+                            width=400,
+                            title=Text(step_eqation, size=20,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                            affinity=flet.TileAffinity.TRAILING,
+                            collapsed_text_color="#B45B5B",
+                            text_color="#B45B5B",
+                            shape=flet.StadiumBorder(),
+                            #expand=False,
+                            controls=[
+                                Text(desc, size=17,font_family="Roboto",weight=flet.FontWeight.W_700),
+                            ],
+                        ),
+                    ),
+                    
+                    
+                    
+                    # spacer
+                    Container(height=5),
+                    
+                    # devider
+                    Divider(height=5,color=flet.colors.ON_SURFACE),
+                    
+                    # spacer
+                    Container(height=2),
+                ],
+                alignment=flet.MainAxisAlignment.CENTER,
+                horizontal_alignment=flet.CrossAxisAlignment.CENTER,
+            )
+        )
+        page.update()
+    
+    def add_in_placeholder_steps():
+        for i in range(10):
+            build_solution_ui(i,"x+5="+str(i),"opisuvam nesto "+str(i))
+    
     # define vars
 
     # define appbar
 
     # define widgets
+
+    # widgets for popup menu items
+    verify_switch = Switch()
+    debug_switch = Switch()
+
+    verify_switch.value = True
 
     # define app bar
     page.appbar = AppBar(
@@ -548,6 +768,25 @@ def main(page: Page):
                 # items in the popupmenu
                 items=[
                     PopupMenuItem(icon=flet.icons.DARK_MODE,text="Change theme",on_click=change_theme_fn),
+                    PopupMenuItem(
+                        content=Row(
+                            [
+                                Text("Verify"),
+                                verify_switch,
+                            ],
+                        ),
+                        on_click=verify_menu_item_fn,
+                    ),
+                    PopupMenuItem(
+                        content=Row(
+                            [
+                                Text("Debug"),
+                                debug_switch,
+                            ],
+                        ),
+                        on_click=debug_menu_item_fn,
+                    ),
+                    PopupMenuItem(), # devider
                     PopupMenuItem(text="Version : 1.0v"),
                 ]
 
@@ -650,7 +889,7 @@ def main(page: Page):
         text="Start",
         #bgcolor="transparent",
         color=flet.colors.ON_SURFACE, # text color
-        width=250,
+        width=230,
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
@@ -668,6 +907,27 @@ def main(page: Page):
 
         ),
         on_click=start_btn_fn,
+    )
+
+    lang_dropdown = Dropdown(
+        label="Language",
+        hint_text="choose OCR support",
+        #border_color=flet.colors.ON_SURFACE,
+        #border_color="#0D96FF",
+        border_color=flet.colors.ON_SURFACE,
+        text_style=flet.TextStyle(
+            color=flet.colors.ON_SURFACE,
+            font_family="Roboto",
+            weight=flet.FontWeight.W_600,
+        ),
+        border_width=2,
+        border_radius=10,
+        width=210,
+        height=60,
+        options=[
+            flet.dropdown.Option("eng"),
+            flet.dropdown.Option("mkd"),
+        ],
     )
 
     # input layout
@@ -716,8 +976,18 @@ def main(page: Page):
             # spacer
             Container(height=10),
 
+            # lang support section
+            lang_dropdown,
+
+            # spacer
+            Container(height=10),
+            
             # start btn
             start_btn,
+
+            # spacer
+            Container(height=10),
+
         ],
         alignment=flet.MainAxisAlignment.CENTER,
         horizontal_alignment=flet.CrossAxisAlignment.CENTER
@@ -1009,13 +1279,84 @@ def main(page: Page):
     )
     text_processing_layout.visible = False
 
-    # cropping layout
-    cropping_layout = Column(
+    # define widgets for eqation layout
+
+    # solution steps column
+    
+    steps_column = Column(
+        [
+            
+        ],
+        spacing=5,
+        scroll=flet.ScrollMode.AUTO,
+        expand=True,
+    )
+
+    # solution conatiner
+
+    solution_container = Container(
+        width=1100,
+        height=400,
+        border_radius=10,
+        padding=20,
+        border=flet.border.all(
+            width=3,
+            color=flet.colors.ON_SURFACE,
+        ),
+        content=steps_column,
+    )
+
+    close_solution_layout_btn = ElevatedButton(
+        text="Close",
+        #bgcolor="transparent",
+        color=flet.colors.ON_SURFACE, # text color
+        width=150,
+        height=60,
+        style=flet.ButtonStyle(
+            shape=flet.RoundedRectangleBorder(radius=20),
+            
+            side=flet.BorderSide(
+                width=2,
+                color=flet.colors.ON_SURFACE # border color
+            ),
+            
+            text_style=flet.TextStyle(
+                size=20,
+                weight=flet.FontWeight.W_700,
+                font_family="Roboto"
+            ),
+
+        ),
+        on_click=close_solution_layout_fn,
+    )
+    
+    # equation solution layout
+    equation_solution_layout = Column(
         [
 
+            # Solution label
+            Text("Solution", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
+
+            # spacer
+            Container(height=10),
+
+            # solution container
+            solution_container,
+
+            # spacer
+            Container(height=10),
+
+            # close btn
+            close_solution_layout_btn,
+
+            # spacer
+            Container(height=10),
+
         ],
-        alignment=flet.MainAxisAlignment.CENTER
+        alignment=flet.MainAxisAlignment.CENTER,
+        horizontal_alignment=flet.CrossAxisAlignment.CENTER,
     )
+    equation_solution_layout.visible = False
 
 
 
@@ -1025,7 +1366,8 @@ def main(page: Page):
             # add layouts here
             input_layout,
             equation_processing_layout,
-            text_processing_layout
+            text_processing_layout,
+            equation_solution_layout,
         ],
         expand=True,
         alignment=flet.MainAxisAlignment.CENTER
@@ -1034,11 +1376,15 @@ def main(page: Page):
     # def file picker
     file_picker = flet.FilePicker(on_result=on_file_selected)
 
+    # def save file dialog
+    save_file_dialog = flet.FilePicker(on_result=save_file_result)
+
     # append snackbar
     page.snack_bar = info_snackbar
 
     # append to page
     page.overlay.append(file_picker)
+    page.overlay.append(save_file_dialog)
 
     # add to the page - this area shows the inserted widgets
     page.add(
