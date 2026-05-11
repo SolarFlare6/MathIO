@@ -8,14 +8,18 @@ import time
 import os
 import PIL
 from image_proccesing import process_image, warp_perspective_image
-from ai_engine import image_to_string
+from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection
 
 # latex ocr import
 from pix2tex.cli import LatexOCR
 
 # Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
-# TODO : finish the alignment of the solution element
-# TODO : Implement the logic for verify menu
+# TODO : fix the cacheing of the prev. img in verify menu
+# TODO : fix cropper function on mac os to run without thread
+# TODO : add checks for tesaract and ollama
+# TODO : find a fix for latex rendering on mac os
+# TODO : add in checks for when calculating the solution to check if there is a connection to ollama if not throw message
+# TODO : if error when running text processing throw the error
 
 
 # import mathplot lib without gui backend
@@ -38,12 +42,14 @@ global_image_selected = False
 global_temp_equation_path = ""
 global_temp_img_index = 0
 global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
+global_verify_path = ""
 
 # global thread vars
 stop_event = threading.Event()
 last_points = None
 global_graywarp = None
 global_warped_perp_obj = None
+global_verify_cropping = False
 
 def main(page: Page):
     page.title = "Math I/O"
@@ -71,7 +77,110 @@ def main(page: Page):
             print("Latex OCR Error : ", e)
             return None
 
-    def run_text_processing():
+    def run_verifiy():
+
+        global global_verify_path
+
+        print("Running verify function !!!")
+        try:
+            if (verify_switch.value):
+
+                # delete the previous images
+                delete_verify_img()
+
+                # get verification image
+                path_verify, points = process_image(global_selected_image_path,debug=debug_switch.value,verify=verify_switch.value)
+
+                global_verify_path = path_verify
+
+                verify_img.src = global_verify_path
+                #verify_img.update()
+
+                open_verify_menu()
+            else:
+                run_text_processing_new(mode="cont")
+        
+        except Exception as e:
+            print("Error while running verify : ",e)
+
+    
+    def run_text_processing_new(mode):
+        print("Running new text processing")
+
+        def continue_process():
+
+            global global_graywarp
+
+            try:
+                
+                graywarp = process_image(global_selected_image_path, lang=lang_dropdown.value, debug=debug_switch.value, verify=False)
+                print(type(graywarp))
+                global_graywarp = graywarp
+
+                extracted_text_field.value = image_to_string(global_graywarp)
+                print("Running image to str with global_graywarp")
+                show_text_processing_layout()
+            
+            except Exception as e:
+                print("Error while processing with graywarp : ", e)
+
+        def crop_process():
+
+            try:
+                if (global_warped_perp_obj is not None):
+                    extracted_text_field.value = image_to_string(global_warped_perp_obj)
+                    print("Running image to str with global_warped_perp_obj")
+                    show_text_processing_layout()
+            
+            except Exception as e:
+                print("Error while processing with global_warped_perp_obj : ",e)
+        
+        if (mode == "cont"):
+            thread_cont = threading.Thread(target=continue_process, daemon=True)
+            thread_cont.start()
+        if (mode == "crop"):
+            thread_crop = threading.Thread(target=crop_process, daemon=True)
+            thread_crop.start()
+
+
+    """def run_text_processing():
+        def background_task():
+            global global_graywarp  # ADD THIS LINE
+            print("Running text processing ...")
+            try:
+                if global_warped_perp_obj is None:
+                    graywarp = process_image(global_selected_image_path, debug=debug_switch.value, verify=verify_switch.value)
+                    print(type(graywarp))
+                    global_graywarp = graywarp
+
+                    #path_verify,points = process_image(global_selected_image_path, debug=debug_switch.value, verify=verify_switch.value)
+                    #global global_verify_path
+                    #global_verify_path = path_verify
+                    
+            except Exception as e:
+                print("Error from processing task : ", e)
+                set_snackbar(e, False, None)
+                return
+
+            # image to str
+            try:
+                if global_warped_perp_obj is not None:
+                    extracted_text_field.value = image_to_string(global_warped_perp_obj)
+                    print("Running image to str with global_warped_perp_obj")
+                else:
+                    extracted_text_field.value = image_to_string(global_graywarp)
+                    print("Running image to str with global_graywarp")
+                print("Value set to text field...")
+                show_text_processing_layout()
+                page.update()
+            except Exception as e:
+                print("Exception : ", e)
+                set_snackbar(e, False, None)
+
+        thread = threading.Thread(target=background_task, daemon=True)
+        thread.start()"""
+    
+    """def run_text_processing_old():
         print("Running text processing ...")
         def processing_task():
 
@@ -80,7 +189,7 @@ def main(page: Page):
             print("running task :")
             try:
                 if (global_warped_perp_obj is None):
-                    graywarp = process_image(global_selected_image_path,debug=debug_switch.value,verify=verify_switch.value)
+                    graywarp = process_image(global_selected_image_path,debug=debug_switch.value,verify=False)
                     print(type(graywarp))
                     global_graywarp = graywarp
             except Exception as e:
@@ -98,11 +207,12 @@ def main(page: Page):
                  extracted_text_field.value = image_to_string(global_graywarp)
                  print("Running image to str with global_graywarp")
             print("Value set to text field...")
+            show_text_processing_layout()
         except Exception as e:
             print("Exception : ",e)
             set_snackbar(e,False,None)
 
-        page.update()
+        page.update()"""
 
     
     def run_ocr_thread(img_path):
@@ -169,6 +279,24 @@ def main(page: Page):
             print("Error while converting latex to png : ", e)
             set_snackbar("Error : " + str(e),False,None)
 
+    # delete temp verify img fn
+    def delete_verify_img():
+        print("Called delete verify img fn after use !!!")
+        try:
+            image_path = global_verify_path
+
+            verify_img.src = None
+            verify_img.update()
+
+            print("Verify path img to be deletet is : ", image_path)
+
+            if (os.path.exists(image_path)):
+                os.remove(image_path)
+                print("Deleted verify img.")
+        
+        except Exception as e:
+            print("Error in deleteing verify img : ",e)
+    
     # delete the temp img fn
     def delete_rendered_equation():
         print("Called the function to delete the temporary file")
@@ -376,6 +504,9 @@ def main(page: Page):
         global global_warped_perp_obj
         
         print("Stopping cropper...")
+
+        global global_verify_cropping
+
         stop_event.set()
         cv2.destroyAllWindows()
         # warp_perspective_image(selected_image_path, points) call
@@ -387,6 +518,13 @@ def main(page: Page):
             global_warped_perp_obj = None
             print("No points from cropper function selected")
             set_snackbar("Cropping canceled",False,None)
+        
+        if (global_verify_cropping and last_points != None):
+            print("Running after cropping...")
+            global_verify_cropping = False
+            close_verify_menu()
+            run_text_processing_new(mode="crop")
+
     
     # cropp button fn
     def cropper_btn_fn(e):
@@ -488,16 +626,12 @@ def main(page: Page):
             print("Showing text processing layout")
             
             # show snackbar
-            set_snackbar("Text processing",True,None)
-            
-            # set visibility of layouts
-            input_layout.visible = False
-            text_processing_layout.visible = True
+            #set_snackbar("Text processing",True,None)
             
             # set image source
             text_img.src = global_selected_image_path
 
-            run_text_processing()
+            run_verifiy()
             
             # update the ui
             page.update()
@@ -554,9 +688,10 @@ def main(page: Page):
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
+        set_snackbar("Calculating eqation...",True,"#F53D37")
         delete_rendered_equation()
+        run_solution_thread()
         show_solution_layout()
-        add_in_placeholder_steps()
     
     
     def close_solution_layout_fn(e):
@@ -696,21 +831,29 @@ def main(page: Page):
     # close verify menu fn
     def close_verify_menu():
         print("Called close verify menu fn !!!")
-        page.dialog = verify_alert_dialog
         verify_alert_dialog.open = False
         page.update()
     
     # continue verify btn fn
     def verify_continue_btn_fn(e):
         print("Called verify continue btn fn !!!")
+        close_verify_menu()
+        run_text_processing_new(mode="cont")
     
     # verify crop btn fn
     def verify_crop_btn_fn(e):
         print("Called verify crop btn fn !!!")
+        global global_verify_cropping
+
+        global_verify_cropping = True
+
+        # run the cropper function
+        run_cropper_start_thread(global_selected_image_path)
+
+        
 
     def ver_menu_item_fn(e):
         print("Running version menu item fn !!!")
-        open_verify_menu()
     
     # destroy solution ui
     def destroy_solution_ui():
@@ -725,7 +868,7 @@ def main(page: Page):
             Column(
                 [
                     # Step label
-                    Text("Step "+str(step_count)+" :", size=20,font_family="Roboto",weight=flet.FontWeight.BOLD),
+                    Text("Step "+str(step_count+1)+" :", size=20,font_family="Roboto",weight=flet.FontWeight.BOLD),
                     
                     # spacer
                     Container(height=10),
@@ -767,10 +910,32 @@ def main(page: Page):
         )
         page.update()
     
-    def add_in_placeholder_steps():
-        for i in range(10):
-            build_solution_ui(i,"x+5="+str(i),"opisuvam nesto "+str(i))
+    def load_solution_in_ui(expression, answer):
+        try:
+            if verifyConnection():
+                response = explain_solution_with_ollama(expression, answer, solution_type = "JSON")
+                expression = response["expression"]
+                answer = response["answer"]
+                steps = response["steps"]
+                print(len(response["steps"]))
+                for i in range(len(steps)):
+                    build_solution_ui(i,steps[i]["situation"],steps[i]["explanation"])
+        except Exception as e:
+            # TODO: Handle The Exception
+            print(e)
     
+    def run_solution_thread():
+        print("Running solution task...")
+
+        def task():
+            print("Running the ai thread to get the answer ")
+            destroy_solution_ui()
+            expression, answer = latex_to_expr_and_answer(extracted_eqation_latex_field.value)
+            load_solution_in_ui(expression, answer)
+        
+        thread_ai = threading.Thread(target=task, daemon=True)
+        thread_ai.start()
+
     # define vars
 
     # define appbar
