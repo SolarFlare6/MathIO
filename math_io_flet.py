@@ -7,8 +7,9 @@ import base64
 import time
 import os
 import PIL
+import platform
 from image_proccesing import process_image, warp_perspective_image
-from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection
+from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection, verify_tesseract_connection
 
 # latex ocr import
 from pix2tex.cli import LatexOCR
@@ -18,8 +19,7 @@ from pix2tex.cli import LatexOCR
 # TODO : fix cropper function on mac os to run without thread
 # TODO : add checks for tesaract and ollama
 # TODO : find a fix for latex rendering on mac os
-# TODO : add in checks for when calculating the solution to check if there is a connection to ollama if not throw message
-# TODO : if error when running text processing throw the error
+
 
 
 # import mathplot lib without gui backend
@@ -30,6 +30,8 @@ import matplotlib.pyplot as plt
 
 # note flet version 0.24.0
 
+# init device
+global_device_platform = platform.system()
 
 # init latex orc model
 global_latex_ocr_model = LatexOCR()
@@ -123,6 +125,7 @@ def main(page: Page):
             
             except Exception as e:
                 print("Error while processing with graywarp : ", e)
+                set_snackbar("Error while processing : " + str(e),False,None)
 
         def crop_process():
 
@@ -134,6 +137,7 @@ def main(page: Page):
             
             except Exception as e:
                 print("Error while processing with global_warped_perp_obj : ",e)
+                set_snackbar("Error while processing : " + str(e),False,None)
         
         if (mode == "cont"):
             thread_cont = threading.Thread(target=continue_process, daemon=True)
@@ -487,14 +491,22 @@ def main(page: Page):
         if image_path != "":
             stop_event.clear()
             
-            cropper_thread = threading.Thread(
-                target=run_cropper,
-                args=(image_path,),
-            )
-            
-            cropper_thread.start()
-            
-            print("Started cropper thread")
+            if (global_device_platform != "Darwin"):
+                
+                # When other os run with thread
+                print("Not running on Mac OS run with thread !!!")
+                
+                cropper_thread = threading.Thread(
+                    target=run_cropper,
+                    args=(image_path,),
+                )
+                cropper_thread.start()
+                print("Started cropper thread")
+            else:
+                # when running on mac call the window without thread
+                print("Running on mac run without thread")
+                run_cropper(image_path)
+        
         else:
             print("No image selected!!!")
     
@@ -575,6 +587,27 @@ def main(page: Page):
             page.theme_mode = "light"
         page.update()
 
+    def check_model_connection(e):
+        print("Called check model connection !!!")
+        set_snackbar("Checking model ...",True,None)
+        try:
+            verifyConnection()
+            print("Model is configured and Ollama is running.")
+            set_snackbar("MathI/O is connected to model.",False,None)
+        except Exception as e:
+            print("Connection not present, start ollama or configure it.")
+            set_snackbar("No connection to model, please start Ollama!",False,None)
+    
+    def check_tessaract_conf(e):
+        print("Called function to check tessaract conf !!!")
+        if verify_tesseract_connection():
+            print("Tesseract is pressent.")
+            set_snackbar("Tesseract is pressent.",False,None)
+        else:
+            print("Please install tesseract !!")
+            set_snackbar("Please install tesseract !!",False,None)
+
+    
     # fn for radio group
     def radio_group_changed_fn(e):
         print("Radio group fn called !!")
@@ -688,7 +721,7 @@ def main(page: Page):
     # eqation calculate btn fn
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
-        set_snackbar("Calculating eqation...",True,"#F53D37")
+        set_snackbar("Calculating equation...",True,"#F53D37")
         delete_rendered_equation()
         run_solution_thread()
         show_solution_layout()
@@ -920,9 +953,14 @@ def main(page: Page):
                 print(len(response["steps"]))
                 for i in range(len(steps)):
                     build_solution_ui(i,steps[i]["situation"],steps[i]["explanation"])
+            else:
+                print("Could not connect to model.")
+                set_snackbar("Could not connect to model",False,None)
         except Exception as e:
             # TODO: Handle The Exception
             print(e)
+            set_snackbar("Error while establishing connection with model : "+str(e),False,None)
+            show_input_layout()
     
     def run_solution_thread():
         print("Running solution task...")
@@ -1043,7 +1081,7 @@ def main(page: Page):
             alignment=flet.MainAxisAlignment.CENTER,
             horizontal_alignment=flet.CrossAxisAlignment.CENTER,
         ),
-        on_dismiss=verify_continue_btn_fn,
+        #on_dismiss=verify_continue_btn_fn,
     )
 
     # widgets for popup menu items
@@ -1071,6 +1109,8 @@ def main(page: Page):
                 # items in the popupmenu
                 items=[
                     PopupMenuItem(icon=flet.icons.DARK_MODE,text="Change theme",on_click=change_theme_fn),
+                    PopupMenuItem(icon=flet.icons.ROCKET,text="Check model",on_click=check_model_connection),
+                    PopupMenuItem(icon=flet.icons.TEXT_FORMAT,text="Check tessaract",on_click=check_tessaract_conf),
                     PopupMenuItem(
                         content=Row(
                             [
