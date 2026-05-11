@@ -211,7 +211,17 @@ def latex_to_expr_and_answer(latex_input, proceed=True):
     return expr, answer
 
 
-# ---------- IMAGE TESSARACT OCR FUNCTION ----------
+# ---------- IMAGE TESSARACT OCR FUNCTIONS ----------
+
+def verify_tesseract_connection():
+    try:
+        version = pt.get_tesseract_version()
+        print(f"Tesseract connected successfully: {version}")
+        return True
+    except Exception as e:
+        print(f"Failed to connect to Tesseract: {e}")
+        return False
+
 def image_to_string(greyscale_image, lang="eng"): # lang = eng || mkd
     """
         Converts a grayscale numpy image into text using Tesseract OCR.

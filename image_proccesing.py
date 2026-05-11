@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from pathlib import Path
+import os
 # from sympy.parsing.latex import parse_latex
 # from sympy import solve
 
@@ -14,7 +15,20 @@ verify_path: str = "Verify_Images"
 def create_path(save__path, name_of_image):
     return str(Path(save__path, name_of_image))
 
+# ---------- helper: File Path Creation ----------
+def createDirectory(dir_name):
+    # Check if the exact target or any parent path is blocked by a file
+    if os.path.exists(dir_name) and not os.path.isdir(dir_name): # Check If a file name has the same name. prevents breaking of the app.
+        print(f"Error: '{dir_name}' already exists as a FILE or invalid type. Cannot create directory.")
+        return False
 
+    if not os.path.isdir(dir_name):
+        os.makedirs(dir_name)
+        print("Directory ", dir_name, " Created. ")
+        return True
+
+    print("Directory ", dir_name, " Already exists.")
+    return True
 # ---------- helper: order points ----------
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -46,6 +60,7 @@ def debug_plot(rows, cols, *images):
         ax.imshow(cv.cvtColor(img["data"], cv.COLOR_BGR2RGB))
 
     plt.tight_layout()
+    createDirectory(save_path)
     plt.savefig(create_path(save_path, "debug_plot.jpg"))
     plt.close()
 
@@ -219,6 +234,7 @@ def process_image(selected_image_path, lang="eng", debug=False, verify=False):
             points_paper = img.copy()
             for (x, y) in pts:
                 cv.circle(points_paper, (int(x), int(y)), 30, (0, 0, 255), -1)
+        createDirectory(verify_path)
         path = create_path(verify_path, "verify.jpg")
         cv.imwrite(path, points_paper)
         print(path, " AND THE POINTS:", pts)
@@ -379,3 +395,6 @@ def warp_perspective_image(selected_image_path, points):
     print(pt.image_to_string(gray, lang="eng"))
 
     return gray
+
+
+createDirectory("./Baba")

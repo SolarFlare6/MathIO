@@ -7,7 +7,7 @@ import base64
 import time
 import os
 import PIL
-from image_proccesing import process_image, warp_perspective_image
+from image_proccesing import process_image, warp_perspective_image, create_path
 from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection
 
 # latex ocr import
@@ -37,7 +37,8 @@ global_verify_path = None
 global_result_latex = None
 
 # temp img vars
-global_temp_equation_path = ""
+global_temp_equation_path = "Temp_Images"
+global_new__path = "Temp_Images"
 global_temp_img_index = 0
 global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
 
@@ -67,7 +68,7 @@ def main(page: Page):
             latex = global_latex_ocr_model(img)
 
             print("Detected Latex : ", latex)
-            
+
             return latex
         except Exception as e:
             print("Latex OCR Error : ", e)
@@ -126,7 +127,7 @@ def main(page: Page):
         thread = threading.Thread(target=background_task, daemon=True)
         thread.start()
 
-    
+
     def run_ocr_thread(img_path):
         def task():
 
@@ -137,19 +138,21 @@ def main(page: Page):
                 extracted_eqation_latex_field.value = result_latex
                 page.update()
                 render_latex_to_image()
-        
+
         threading.Thread(target=task,daemon=True).start()
-    
+
     # turn latex input into png
     def latex_to_png_file(latex_str,output_path=global_temp_equation_file_name):
         print("Running latex to png !!!")
-        
+        global global_new__path
+        global_new__path = create_path(global_temp_equation_path, output_path)
+        print("new_path : ", global_new__path)
         try:
-            
+
             fig = plt.figure(figsize=(2, 1))
             fig.patch.set_alpha(0)
-            
-            
+
+
             if (page.theme_mode == "light"):
                 print("Setting text as black for light mode.")
                 plt.text(
@@ -172,22 +175,21 @@ def main(page: Page):
                     va="center",
                     color="white"
                 )
-            
+
             plt.axis("off")
-            
+            #OVDE OGNEN! PT2
             plt.savefig(
-                output_path,
+                global_new__path,
                 format="png",
                 bbox_inches="tight",
                 pad_inches=0.1,
                 transparent=True,
                 dpi=300
             )
-            
+            print(f'{output_path} saved.')
             plt.close(fig)
-            
-            return output_path
-        
+            return global_new__path
+
         except Exception as e:
             print("Error while converting latex to png : ", e)
             set_snackbar("Error : " + str(e),False,None)
@@ -198,7 +200,7 @@ def main(page: Page):
 
         try:
 
-            image_path = global_temp_equation_path
+            image_path = global_new__path #OVDE OGI
 
             print("Image path to be deleted : ", image_path)
 
@@ -208,188 +210,188 @@ def main(page: Page):
             if (os.path.exists(image_path)):
                 os.remove(image_path)
                 print("deleted temporary file.")
-        
+
         except Exception as e:
             print(e)
-    
+
     # fn for cropping new (has better scaling and can morph with right click)
     def get_4_crop_points(image_path, stop_event):
-        
+
         img = cv2.imread(image_path)
-        
+
         if img is None:
             print("Failed to load image")
             return None
-        
+
         h, w = img.shape[:2]
-        
+
         # scale to fit screen
         max_w, max_h = 1000, 700
         scale = min(max_w / w, max_h / h, 1.0)
-        
+
         view_x, view_y = 0, 0
         dragging = False
         last_mouse = (0, 0)
-        
+
         points = []
-        
+
         def mouse_callback(event, x, y, flags, param):
             nonlocal dragging, last_mouse, view_x, view_y
-            
+
             if event == cv2.EVENT_LBUTTONDOWN:
                 # convert to original coords
                 real_x = int((x + view_x) / scale)
                 real_y = int((y + view_y) / scale)
-                
+
                 if len(points) < 4:
                     points.append((real_x, real_y))
                     print(f"Point {len(points)}: {(real_x, real_y)}")
-            
+
             elif event == cv2.EVENT_RBUTTONDOWN:
                 dragging = True
                 last_mouse = (x, y)
-            
+
             elif event == cv2.EVENT_MOUSEMOVE and dragging:
                 dx = x - last_mouse[0]
                 dy = y - last_mouse[1]
-                
+
                 view_x = max(0, min(view_x - dx, int(w * scale)))
                 view_y = max(0, min(view_y - dy, int(h * scale)))
-                
+
                 last_mouse = (x, y)
-            
+
             elif event == cv2.EVENT_RBUTTONUP:
                 dragging = False
-        
+
         cv2.namedWindow("Cropper", cv2.WINDOW_NORMAL)
         cv2.setMouseCallback("Cropper", mouse_callback)
-        
+
         while not stop_event.is_set():
-            
+
             # crop visible area
             resized = cv2.resize(img, None, fx=scale, fy=scale)
             vh, vw = resized.shape[:2]
-            
+
             x2 = min(view_x + max_w, vw)
             y2 = min(view_y + max_h, vh)
-            
+
             view = resized[view_y:y2, view_x:x2].copy()
-            
+
             # draw selected points
             for i, (px, py) in enumerate(points):
                 sx = int(px * scale) - view_x
                 sy = int(py * scale) - view_y
-                
+
                 if 0 <= sx < view.shape[1] and 0 <= sy < view.shape[0]:
                     cv2.circle(view, (sx, sy), 5, (225, 110, 91), -1)
                     cv2.putText(view, str(i+1), (sx+5, sy-5),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
-            
+
             cv2.imshow("Cropper", view)
-            
+
             key = cv2.waitKey(1)
-            
+
             if key == 27:  # ESC
                 break
-            
+
             if len(points) == 4:
                 break
-        
+
         cv2.destroyAllWindows()
-        
+
         if len(points) != 4:
             print("Not enough points selected")
             return None
-        
+
         return points
 
     # funtion for cropping (opens the window) [currently unused]
     def get_4_crop_points_old(image_path, stop_event):
-        
+
         img = cv2.imread(image_path)
-        
+
         if img is None:
             print("Failed to load image")
             return None
-        
-        
+
+
         clone = img.copy()
         points = []
-        
+
         def mouse_callback(event, x, y, flags, param):
             if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
                 points.append((x, y))
                 print(f"Point {len(points)}: {(x, y)}")
-        
+
         cv2.namedWindow("Cropper")
         cv2.setMouseCallback("Cropper", mouse_callback)
-        
+
         while not stop_event.is_set():
-            
+
             display = clone.copy()
-            
+
             # draw points - define the color and the size of the points (color is in BGR)
             for i, (x, y) in enumerate(points):
                 cv2.circle(display, (x, y), 5, (225, 110, 91), -1)
                 cv2.putText(display, str(i+1), (x+5, y-5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225,110,91), 1)
-            
+
             cv2.imshow("Cropper", display)
-            
+
             key = cv2.waitKey(1)
-            
+
             if key == 27:  # ESC
                 break
-            
+
             if len(points) == 4:
                 break
-        
+
         cv2.destroyAllWindows()
-        
+
         if len(points) != 4:
             print("Not enough points selected")
             return None
-        
+
         return points  # [TL, TR, BR, BL]
 
-    
+
     # funtion to run cropper
     def run_cropper(image_path):
-        
+
         global last_points
-        
+
         print("Running cropper...")
-        
+
         pts = get_4_crop_points(image_path, stop_event)
         last_points = pts
-        
+
         print("Selected points:", last_points)
         stop_cropper()
-    
+
     # fn to start cropper thread
     def run_cropper_start_thread(image_path):
-        
+
         print("Called function to start cropper...")
-        
+
         if image_path != "":
             stop_event.clear()
-            
+
             cropper_thread = threading.Thread(
                 target=run_cropper,
                 args=(image_path,),
             )
-            
+
             cropper_thread.start()
-            
+
             print("Started cropper thread")
         else:
             print("No image selected!!!")
-    
+
     # to stop the thread
     def stop_cropper():
-        
+
         global global_warped_perp_obj
-        
+
         print("Stopping cropper...")
         stop_event.set()
         cv2.destroyAllWindows()
@@ -402,13 +404,13 @@ def main(page: Page):
             global_warped_perp_obj = None
             print("No points from cropper function selected")
             set_snackbar("Cropping canceled",False,None)
-    
+
     # cropp button fn
     def cropper_btn_fn(e):
         print("Cropper button fn called !!!")
         run_cropper_start_thread(global_selected_image_path)
 
-    
+
     # simply opens the snackbar with its default content
     def open_snackbar():
         print("Open snackbar function called !!")
@@ -429,7 +431,7 @@ def main(page: Page):
         print("Close snackbar function called !!")
         info_snackbar.open = False
         page.update()
-    
+
     # show snackbar with parametars - define the text that will be displayed, does it have a progress ring and the color of the ring
     def set_snackbar(txt,show_progress_ring, ring_color):
         print("Called Set snackbar function !!!")
@@ -439,7 +441,7 @@ def main(page: Page):
             print("Changing the color or the progress ring")
             snackbar_progress_ring.color = ring_color
         open_snackbar()
-    
+
     def file_btn_fn(e):
         print("File button pressed fn called !!")
         open_file_dialog_fn()
@@ -463,23 +465,23 @@ def main(page: Page):
             print("Choese text processing.")
             lang_dropdown.visible = True
             page.update()
-        
+
         if (radio_val == 2):
             print("Choese equation processing.")
             lang_dropdown.visible = False
             page.update()
-    
+
     # close eqation layout btn fn
     def close_eqation_layout_btn_fn(e):
         print("Close eqation layout btn pressed fn called !!")
-        
+
         delete_rendered_equation()
-        
+
         equation_processing_layout.visible = False
         input_layout.visible = True
         # implement full logic when implementing
         page.update()
-    
+
     def close_txt_processing_layout_fn(e):
         print("Close txt processing layout fn called !!")
         text_processing_layout.visible = False
@@ -489,11 +491,11 @@ def main(page: Page):
     def copy_text_btn_fn(e):
         print("Copy text btn fn called !!")
         copy_to_clipboard(extracted_text_field.value)
-    
+
     def save_text_btn_fn(e):
         print("Save text btn fn called !!")
         open_save_dialog()
-    
+
     # start btn fn
     def start_btn_fn(e):
         print("Start btn pressed fn called !!")
@@ -501,31 +503,31 @@ def main(page: Page):
         # implement logic fully later
         if (int(radio_group.value) == 1 and global_image_selected):
             print("Showing text processing layout")
-            
+
             # show snackbar
             set_snackbar("Text processing",True,None)
-            
+
             # set visibility of layouts
             input_layout.visible = False
             text_processing_layout.visible = True
-            
+
             # set image source
             text_img.src = global_selected_image_path
 
             run_text_processing()
-            
+
             # update the ui
             page.update()
-        
+
         if (int(radio_group.value) == 2 and global_image_selected):
             print("Showing eqation processing layout")
 
             run_ocr_thread(global_selected_image_path)
-            
+
             # visibility
             input_layout.visible = False
             equation_processing_layout.visible = True
-            
+
             # set source for eqation image
             eqation_img.src = global_selected_image_path
 
@@ -534,38 +536,39 @@ def main(page: Page):
 
             # show snacbar
             set_snackbar("Equation processing",True,"#F53D37")
-    
-    
+
+
     # render the latex fn universal
     def render_latex_to_image():
         delete_rendered_equation()
         print("Running universal render latex to png fn ...")
         print(extracted_eqation_latex_field.value)
-        
+
         global global_temp_equation_path
         global global_temp_img_index
 
         # get the path for the image
         if (extracted_eqation_latex_field.value != ""):
-            
+
             global_temp_img_index = global_temp_img_index + 1
             global_temp_equation_file_name = f"equ_temp{global_temp_img_index}.png"
-            
+
             print("global temp image index : ", global_temp_img_index)
             print("global temp image filename : ", global_temp_equation_file_name)
             print("global temp image path : ", global_temp_equation_path)
-
+            #OVDE OGNEN!!!
             img_path = latex_to_png_file(extracted_eqation_latex_field.value,global_temp_equation_file_name)
-            
+
             latex_render_img.src = img_path
-            global_temp_equation_path = img_path
+            print(latex_render_img.src)
+            # global_temp_equation_path = img_path
 
         page.update()
-    
+
     # render latex btn fn
     def render_latex_btn_fn(e):
         render_latex_to_image()
-    
+
     # eqation calculate btn fn. OGNEN TUKA!
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
@@ -574,25 +577,25 @@ def main(page: Page):
         add_in_placeholder_steps(expression, answer)
         show_solution_layout()
 
-    
-    
+
+
     def close_solution_layout_fn(e):
         print("Called close solution layout btn fn !!!")
         show_input_layout()
         destroy_solution_ui()
-    
+
     # fn to handle save file dialog result
     def save_file_result(e: flet.FilePickerResultEvent):
         print("Called save file dialog result fn !!!")
         if e.path:
             with open(e.path, "w", encoding="utf-8") as file:
                 file.write(extracted_text_field.value)
-            
+
             print("Saved file : ", e.path)
             set_snackbar("Saved text file",False,None)
         else:
             print("Did not save.")
-    
+
     # fn to handle file picker result
     def on_file_selected(e: flet.FilePickerResultEvent):
 
@@ -606,7 +609,7 @@ def main(page: Page):
             # update the image path
             global_selected_image_path = selected_file
             print("global selected image path is : " + global_selected_image_path)
-            
+
             # set values
             select_file_btn.text = "File selected!"
             path_lable.value = global_selected_image_path
@@ -619,7 +622,7 @@ def main(page: Page):
 
             # set flag true
             global_image_selected = True
-    
+
     # open save dialog
     def open_save_dialog():
         print("Running function to open save dialog !!!")
@@ -628,7 +631,7 @@ def main(page: Page):
             file_name="extracted_text.txt",
             allowed_extensions=["txt"]
         )
-    
+
     # fn to open file dialog
     def open_file_dialog_fn():
         print("Called open file dialog fn !!!")
@@ -636,13 +639,13 @@ def main(page: Page):
             allow_multiple=False,
             allowed_extensions=["png", "jpg", "jpeg"]
         )
-    
+
     # copy to clipboard fn
     def copy_to_clipboard(txt):
         print("Running copy to clipboard fn with str : " + txt)
         page.set_clipboard(txt)
         set_snackbar("Copied to clipboard",False,None)
-    
+
     def verify_menu_item_fn(e):
         print("Called verify menu item fn !!!")
         if (verify_switch.value):
@@ -651,7 +654,7 @@ def main(page: Page):
             verify_switch.value = True
         print("Verifiy switch value : ", verify_switch.value)
         verify_switch.update()
-    
+
     def debug_menu_item_fn(e):
         print("Called debug menu item fn !!!")
 
@@ -660,12 +663,12 @@ def main(page: Page):
         else:
             debug_switch.value = True
         print("Debug switch value : ", debug_switch.value)
-        
+
         debug_switch.update()
-    
+
     def show_solution_layout():
         print("Show solution layout fn called !!")
-        
+
         equation_solution_layout.visible = True
         input_layout.visible = False
         equation_processing_layout.visible = False
@@ -675,7 +678,7 @@ def main(page: Page):
 
     def show_input_layout():
         print("Show input layout fn called !!")
-        
+
         equation_solution_layout.visible = False
         input_layout.visible = True
         equation_processing_layout.visible = False
@@ -685,30 +688,30 @@ def main(page: Page):
 
     def show_eqation_processing_layout():
         print("Show equation processing layout fn called !!")
-        
+
         equation_solution_layout.visible = False
         input_layout.visible = False
         equation_processing_layout.visible = True
         text_processing_layout.visible = False
 
         page.update()
-    
+
     def show_text_processing_layout():
         print("Show text processing layout fn called !!")
-        
+
         equation_solution_layout.visible = False
         input_layout.visible = False
         equation_processing_layout.visible = False
         text_processing_layout.visible = True
 
         page.update()
-     
+
     # destroy solution ui
     def destroy_solution_ui():
         print("Destroying the solution widgets inside steps_column !!!")
         steps_column.controls.clear()
         page.update()
-    
+
     # fn to add in steps dynamicly
     def build_solution_ui(step_count,step_eqation,desc):
         print("Adding ui component with : " + str(step_count) + "," + step_eqation + "," + desc)
@@ -717,10 +720,10 @@ def main(page: Page):
                 [
                     # Step label
                     Text("Step "+str(step_count)+" :", size=20,font_family="Roboto",weight=flet.FontWeight.BOLD),
-                    
+
                     # spacer
                     Container(height=10),
-                    
+
                     # Expansion tile
                     Container(
                         width=780,
@@ -740,15 +743,15 @@ def main(page: Page):
                             ],
                         ),
                     ),
-                    
-                    
-                    
+
+
+
                     # spacer
                     Container(height=5),
-                    
+
                     # devider
                     Divider(height=5,color=flet.colors.ON_SURFACE),
-                    
+
                     # spacer
                     Container(height=2),
                 ],
@@ -799,7 +802,7 @@ def main(page: Page):
         ),
         actions=[
             PopupMenuButton(
-                
+
                 # items in the popupmenu
                 items=[
                     PopupMenuItem(icon=flet.icons.DARK_MODE,text="Change theme",on_click=change_theme_fn),
@@ -850,8 +853,8 @@ def main(page: Page):
     info_snackbar = SnackBar(
         content=snackbar_content,
     )
-    
-    
+
+
     # define other layouts
 
     # define input layout widgets
@@ -864,12 +867,12 @@ def main(page: Page):
         height=80,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=30),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color="#0D96FF"
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -928,12 +931,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color=flet.colors.ON_SURFACE # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -969,7 +972,7 @@ def main(page: Page):
     input_layout = Column(
         [
             # widgets inside the input layout
-            
+
             # define big title
             Column(
                 [
@@ -1016,7 +1019,7 @@ def main(page: Page):
 
             # spacer
             Container(height=10),
-            
+
             # start btn
             start_btn,
 
@@ -1030,13 +1033,13 @@ def main(page: Page):
     input_layout.visible = True
 
     # define equation processing layout widgets
-    
+
     eqation_img = Image(
         src="eqation.png", # path to image
         fit=flet.ImageFit.FILL,
         border_radius=20,
     )
-    
+
     image_container_for_eqation = Container(
         width=370,
         height=370,
@@ -1059,7 +1062,7 @@ def main(page: Page):
     latex_render_img = Image(
         src="render_place_holder.png",
         border_radius=20,
-        fit=flet.ImageFit.CONTAIN,       
+        fit=flet.ImageFit.CONTAIN,
     )
 
     latex_render_conatainer = Container(
@@ -1079,12 +1082,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color="#F53D37" # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -1103,12 +1106,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color=flet.colors.ON_SURFACE # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -1128,10 +1131,10 @@ def main(page: Page):
                 [
                     # title for extracted eqation layout
                     Text("Latex form :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
-                    
+
                     # spacer
                     Container(height=5),
-                    
+
                     # row for latex field and render button
                     Row(
                         [
@@ -1155,7 +1158,7 @@ def main(page: Page):
                     Container(height=10),
 
                     # rendered latex output in image form
-                    
+
                     # label for rendered eqation
                     Text("Rendered equation :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
 
@@ -1187,7 +1190,7 @@ def main(page: Page):
         fit=flet.ImageFit.COVER,
         border_radius=20,
     )
-    
+
     image_container_for_text = Container(
         width=320,
         height=320,
@@ -1207,12 +1210,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color="#0D96FF" # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -1231,12 +1234,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color="#F53D37" # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -1255,12 +1258,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color=flet.colors.ON_SURFACE # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -1271,7 +1274,7 @@ def main(page: Page):
         on_click=close_txt_processing_layout_fn,
     )
 
-    
+
     # define text processing layout
     text_processing_layout = Row(
         [
@@ -1281,10 +1284,10 @@ def main(page: Page):
                 [
                     # title for extracted text layout
                     Text("Extracted text :", size=25,font_family="Roboto",weight=flet.FontWeight.BOLD),
-                    
+
                     # spacer
                     Container(height=5),
-                    
+
                     # container for the extacted text
                     Container(
                         width=500,
@@ -1317,10 +1320,10 @@ def main(page: Page):
     # define widgets for eqation layout
 
     # solution steps column
-    
+
     steps_column = Column(
         [
-            
+
         ],
         spacing=5,
         scroll=flet.ScrollMode.AUTO,
@@ -1349,12 +1352,12 @@ def main(page: Page):
         height=60,
         style=flet.ButtonStyle(
             shape=flet.RoundedRectangleBorder(radius=20),
-            
+
             side=flet.BorderSide(
                 width=2,
                 color=flet.colors.ON_SURFACE # border color
             ),
-            
+
             text_style=flet.TextStyle(
                 size=20,
                 weight=flet.FontWeight.W_700,
@@ -1364,7 +1367,7 @@ def main(page: Page):
         ),
         on_click=close_solution_layout_fn,
     )
-    
+
     # equation solution layout
     equation_solution_layout = Column(
         [
