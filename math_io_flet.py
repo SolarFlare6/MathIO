@@ -278,7 +278,7 @@ def main(page: Page):
                 print(type(graywarp))
                 global_graywarp = graywarp
 
-                extracted_text_field.value = image_to_string(global_graywarp)
+                extracted_text_field.value = image_to_string(global_graywarp,lang=lang_dropdown.value)
                 print("Running image to str with global_graywarp")
                 show_text_processing_layout()
             
@@ -290,7 +290,7 @@ def main(page: Page):
 
             try:
                 if (global_warped_perp_obj is not None):
-                    extracted_text_field.value = image_to_string(global_warped_perp_obj)
+                    extracted_text_field.value = image_to_string(global_warped_perp_obj,lang=lang_dropdown.value)
                     print("Running image to str with global_warped_perp_obj")
                     show_text_processing_layout()
             
