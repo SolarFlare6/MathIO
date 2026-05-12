@@ -10,7 +10,7 @@ import PIL
 import platform
 from image_proccesing import process_image, warp_perspective_image
 from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection, verify_tesseract_connection
-from multiprocessing import Process
+import multiprocessing as mp
 
 # latex ocr import
 from pix2tex.cli import LatexOCR
@@ -321,8 +321,38 @@ def main(page: Page):
         except Exception as e:
             print(e)
     
-    # get 4 crop points mac os
-    def get_4_crop_points_mac_os(image_path, stop_event):
+    # get 4 crop points mac modified
+    def get_4_crop_points_mac_os(image_path):
+        
+        try:
+            
+            queue = mp.Queue()
+            
+            process = mp.Process(
+                target=cropper_process_mac_os,
+                args=(image_path, queue)
+            )
+            
+            process.start()
+            
+            print("Started cropper process")
+            
+            # THIS IS THE "RETURN VALUE"
+            result = queue.get()
+            
+            process.join()
+            
+            print("Process finished")
+            
+            return result
+        
+        except Exception as e:
+            print("Mac OS cropper wrapper error:", e)
+            return None
+
+    
+    # cropper process mac os
+    def cropper_process_mac_os(image_path, queue):
         
         try:
             
@@ -377,7 +407,7 @@ def main(page: Page):
                 print("Assigned the mouse_callback function")
                 cv2.setMouseCallback("Cropper", mouse_callback)
                 
-                while not False:
+                while True:
                     
                     # crop visible area
                     resized = cv2.resize(img, None, fx=scale, fy=scale)
@@ -408,23 +438,23 @@ def main(page: Page):
                     key = cv2.waitKey(1)
                     
                     if key == 27:  # ESC
-                        break
-                    
-                    if len(points) == 4:
+                        queue.put(None)
                         break
                     
                     cv2.destroyAllWindows()
                     
                     if len(points) != 4:
                         print("Not enough points selected")
-                        return None
+                        queue.put(None)
                     
-                    return points
+                    if len(points) == 4:
+                        queue.put(points)
+                        break
         
         except Exception as e:
             print("get 4 crop points error : ", e)
             # set_snackbar("Crop error : " + str(e), False, None)
-            return None
+            queue.put(None)
     
     # fn for cropping new (has better scaling and can morph with right click)
     def get_4_crop_points(image_path, stop_event):
@@ -583,7 +613,7 @@ def main(page: Page):
         print("Running cropper...")
         
         if (global_device_platform == "Darwin"):
-            pts = get_4_crop_points_mac_os(image_path, stop_event)
+            pts = get_4_crop_points_mac_os(image_path)
         else:
             pts = get_4_crop_points(image_path, stop_event)
         last_points = pts
@@ -613,12 +643,7 @@ def main(page: Page):
             else:
                 # when running on mac call the window without thread
                 print("Running on mac run without thread")
-                img_process = Process(
-                    target=run_cropper,
-                    args=(image_path)
-                )
-                img_process.start()
-                img_process.join()
+                run_cropper(image_path)
         
         else:
             print("No image selected!!!")
