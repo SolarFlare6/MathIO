@@ -1888,4 +1888,8 @@ def main(page: Page):
 
 #flet.app(target=main)
 #flet.app(target=main, view=flet.WEB_BROWSER, assets_dir="assets") # you can comment the line above and uncomment this line to run it in a browser
-flet.app(target=main, assets_dir="assets") # when assets are used
+#flet.app(target=main, assets_dir="assets") # when assets are used
+
+if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
+    flet.app(target=main, assets_dir="assets")
