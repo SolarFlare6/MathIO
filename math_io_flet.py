@@ -36,6 +36,8 @@ global_latex_ocr_model = LatexOCR()
 # global variables 
 global_selected_image_path = ""
 global_image_selected = False
+global_verify_path = None
+global_result_latex = None
 
 # temp img vars
 global_temp_equation_path = ""
@@ -356,9 +358,8 @@ def main(page: Page):
                     global_graywarp = graywarp
             except Exception as e:
                 print("Error from processing task : ", e)
-                set_snackbar(e,False,None)
-        
-        processing_task()
+                set_snackbar(e, False, None)
+                return
 
         # image to str
         try:
@@ -381,7 +382,8 @@ def main(page: Page):
         def task():
 
             result_latex = img_to_latex(img_path)
-
+            global global_result_latex
+            global_result_latex = result_latex
             if (result_latex):
                 extracted_eqation_latex_field.value = result_latex
                 page.update()
@@ -885,7 +887,7 @@ def main(page: Page):
     def render_latex_btn_fn(e):
         render_latex_to_image()
     
-    # eqation calculate btn fn
+    # eqation calculate btn fn. OGNEN TUKA!
     def eqation_calculate_btn_fn(e):
         print("Equation calculate btn fn called !!")
         set_snackbar("Calculating equation...",True,"#F53D37")
