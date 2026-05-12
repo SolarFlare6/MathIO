@@ -10,6 +10,7 @@ import PIL
 import platform
 from image_proccesing import process_image, warp_perspective_image
 from ai_engine import image_to_string, latex_to_expr_and_answer, explain_solution_with_ollama, verifyConnection, verify_tesseract_connection
+from multiprocessing import Process
 
 # latex ocr import
 from pix2tex.cli import LatexOCR
@@ -612,7 +613,12 @@ def main(page: Page):
             else:
                 # when running on mac call the window without thread
                 print("Running on mac run without thread")
-                run_cropper(image_path)
+                img_process = Process(
+                    target=run_cropper,
+                    args=(image_path)
+                )
+                img_process.start()
+                img_process.join()
         
         else:
             print("No image selected!!!")
