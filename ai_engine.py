@@ -1,12 +1,19 @@
-from json.decoder import NaN
-
 import numpy as np
 import pytesseract as pt
 import requests as rq
 import json
+import antlr4
+import sympy
+import sympy.parsing.latex
+import sympy.parsing.latex._parse_latex_antlr
 from sympy.parsing.latex import parse_latex
 from sympy import solve, simplify, Eq
+
 import cv2 as cv
+import pkg_resources
+
+print("Version of antrl4 is:", pkg_resources.get_distribution("antlr4-python3-runtime").version)
+
 
 # ---------- UTIL FUNCTIONS ----------
 def clean_json(text):
@@ -18,20 +25,23 @@ def clean_json(text):
 
     return text.strip()
 
+
 # ---------- OLLAMA FUNCTIONS & VARIABLES ----------
 check_url = "http://localhost:11434"
-request_url ="http://localhost:11434/api/generate"
+request_url = "http://localhost:11434/api/generate"
+
 
 # FIRST CALL THIS FUNC IN A IF STATEMENT.
 # WHEN IT RETURNS TRUE, CALL THE explain_solution_with_ollama FUNCTION TO GET EXPLANATION.
 # IF NO CONNECTION HAS BEEN ESTABLISHED. SHOW EXCPETION RESULT.
 def verifyConnection():
     try:
-        response =  rq.get(check_url)
+        response = rq.get(check_url)
         if response.status_code == 200:
             return True
     except Exception as e:
         raise Exception("No connection established. Please Check Ollama Model")
+
 
 """
 This function sends a math expression + final answer to an Ollama model
@@ -82,34 +92,35 @@ for step in result["steps"]:
     print(step["explanation"])
 
 """
-def explain_solution_with_ollama(expression, answer,solution_type = "Text",model="gemma3:4b"):
 
+
+def explain_solution_with_ollama(expression, answer, solution_type="Text", model="gemma3:4b"):
     if solution_type == "Text":
         prompt = f"""
     You are a precise math tutor.
-    
+
     You are given:
     1. A mathematical expression:
     {expression}
-    
+
     2. The correct final answer:
     {answer}
-    
+
     Your task:
     - Convert the expression into clean math notation
     - Explain short step-by-step reasoning
     - Keep it simple and structured
     - Do NOT change the final answer
-    
+
     Format:
     EQUATION:
     ...
-    
+
     STEPS:
     Step 1:
     Step 2:
     Step 3:
-    
+
     FINAL ANSWER:
     {answer}
     """
@@ -154,7 +165,6 @@ def explain_solution_with_ollama(expression, answer,solution_type = "Text",model
         {answer}
         """
 
-
     payload = {
         "model": model,
         "prompt": prompt,
@@ -168,7 +178,6 @@ def explain_solution_with_ollama(expression, answer,solution_type = "Text",model
         if response.status_code == 200:
             if solution_type == "Text":
                 return response.json()["response"]
-
 
             raw_answer = response.json()["response"]
             clean_answer = clean_json(raw_answer)
@@ -184,11 +193,16 @@ def explain_solution_with_ollama(expression, answer,solution_type = "Text",model
         return str(e)
 
 
-
-print(type(explain_solution_with_ollama("x*2 = 10", 5, solution_type = "JSON")))
+print(type(explain_solution_with_ollama("x*2 = 10", 5, solution_type="JSON")))
 
 
 # ---------- LATEX & SymPy FUNCTIONS ----------
+
+def clean_latex(latex):
+    latex = latex.replace("{", "").replace("}", "")
+    latex = latex.replace("X", "x")
+    return latex
+
 
 # REQUIRES LATEX FORM OF EQUATION
 # RETURNS A TUPLE (expression, answer)
@@ -200,7 +214,15 @@ def latex_to_expr_and_answer(latex_input, proceed=True):
         (expression, answer)
     """
 
+    if not latex_input:
+        print("DEBUG: empty latex input")
+        return None, "No input received"
+
     expr = parse_latex(latex_input)
+
+    if expr is None:
+        print("DEBUG: parse_latex failed")
+        return None, "Parse error"
 
     # If it's an equation
     if "=" in latex_input and proceed:
@@ -222,7 +244,8 @@ def verify_tesseract_connection():
         print(f"Failed to connect to Tesseract: {e}")
         return False
 
-def image_to_string(greyscale_image, lang="eng"): # lang = eng || mkd
+
+def image_to_string(greyscale_image, lang="eng"):  # lang = eng || mkd
     """
         Converts a grayscale numpy image into text using Tesseract OCR.
         """
