@@ -51,6 +51,9 @@ global_graywarp = None
 global_warped_perp_obj = None
 global_verify_cropping = False
 
+# store the extracted eqation
+gloab_extracted_equation = ""
+
 # top level fn
 
 # path adjust fn for mac os (gives abs path)
@@ -856,6 +859,7 @@ def main(page: Page):
         
         global global_temp_equation_path
         global global_temp_img_index
+        global gloab_extracted_equation
 
         # get the path for the image
         if (extracted_eqation_latex_field.value != ""):
@@ -867,7 +871,11 @@ def main(page: Page):
             print("global temp image filename : ", global_temp_equation_file_name)
             print("global temp image path : ", global_temp_equation_path)
 
+            gloab_extracted_equation = extracted_eqation_latex_field.value
+
             img_path = latex_to_png_file(extracted_eqation_latex_field.value,global_temp_equation_file_name)
+
+            print("Global extracted equation : " + str(gloab_extracted_equation))
             
             latex_render_img.src = abs_img(img_path)
             global_temp_equation_path = img_path
@@ -1127,10 +1135,16 @@ def main(page: Page):
         print("Running solution task...")
 
         def task():
-            print("Running the ai thread to get the answer ")
-            destroy_solution_ui()
-            expression, answer = latex_to_expr_and_answer(extracted_eqation_latex_field.value)
-            load_solution_in_ui(expression, answer)
+            try:
+                print("Running the ai thread to get the answer ")
+                print("Checking the solution for equation : " + str(gloab_extracted_equation))
+                destroy_solution_ui()
+                expression, answer = latex_to_expr_and_answer(gloab_extracted_equation)
+                load_solution_in_ui(expression, answer)
+            except Exception as e:
+                print("error while running solution thread : ",e)
+                set_snackbar("Error while running solution thread : "+str(e),False,None)
+            
         
         thread_ai = threading.Thread(target=task, daemon=True)
         thread_ai.start()
@@ -1900,5 +1914,6 @@ def main(page: Page):
 #flet.app(target=main, assets_dir="assets") # when assets are used
 
 if __name__ == "__main__":
+    mp.freeze_support()
     mp.set_start_method("spawn", force=True)
     flet.app(target=main, assets_dir="assets")
