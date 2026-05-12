@@ -17,7 +17,6 @@ from pix2tex.cli import LatexOCR
 # Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
 # TODO : fix the cacheing of the prev. img in verify menu
 # TODO : fix cropper function on mac os to run without thread
-# TODO : add checks for tesaract and ollama
 # TODO : find a fix for latex rendering on mac os
 
 
@@ -95,7 +94,7 @@ def main(page: Page):
 
                 global_verify_path = path_verify
 
-                verify_img.src = global_verify_path
+                verify_img.src = path_verify
                 #verify_img.update()
 
                 open_verify_menu()
@@ -321,6 +320,111 @@ def main(page: Page):
         except Exception as e:
             print(e)
     
+    # get 4 crop points mac os
+    def get_4_crop_points_mac_os(image_path, stop_event):
+        
+        try:
+            
+            img = cv2.imread(image_path)
+            
+            if img is None:
+                print("Failed to load image")
+                return None
+            
+            h, w = img.shape[:2]
+            
+            # scale to fit screen
+            max_w, max_h = 1000, 700
+            scale = min(max_w / w, max_h / h, 1.0)
+            
+            view_x, view_y = 0, 0
+            dragging = False
+            last_mouse = (0, 0)
+            
+            points = []
+            
+            def mouse_callback(event, x, y, flags, param):
+                
+                nonlocal dragging, last_mouse, view_x, view_y
+                
+                if event == cv2.EVENT_LBUTTONDOWN:
+                    # convert to original coords
+                    real_x = int((x + view_x) / scale)
+                    real_y = int((y + view_y) / scale)
+                    
+                    if len(points) < 4:
+                        points.append((real_x, real_y))
+                        print(f"Point {len(points)}: {(real_x, real_y)}")
+                
+                elif event == cv2.EVENT_RBUTTONDOWN:
+                    dragging = True
+                    last_mouse = (x, y)
+                
+                elif event == cv2.EVENT_MOUSEMOVE and dragging:
+                    dx = x - last_mouse[0]
+                    dy = y - last_mouse[1]
+                    
+                    view_x = max(0, min(view_x - dx, int(w * scale)))
+                    view_y = max(0, min(view_y - dy, int(h * scale)))
+                    
+                    last_mouse = (x, y)
+                
+                elif event == cv2.EVENT_RBUTTONUP:
+                    dragging = False
+                
+                cv2.namedWindow("Cropper")
+                print("Assigned the mouse_callback function")
+                cv2.setMouseCallback("Cropper", mouse_callback)
+                
+                while not False:
+                    
+                    # crop visible area
+                    resized = cv2.resize(img, None, fx=scale, fy=scale)
+                    vh, vw = resized.shape[:2]
+                    
+                    x2 = min(view_x + max_w, vw)
+                    y2 = min(view_y + max_h, vh)
+                    
+                    view = resized[view_y:y2, view_x:x2].copy()
+                    
+                    # draw selected points
+                    for i, (px, py) in enumerate(points):
+                        
+                        sx = int(px * scale) - view_x
+                        sy = int(py * scale) - view_y
+                        
+                        if 0 <= sx < view.shape[1] and 0 <= sy < view.shape[0]:
+                            cv2.circle(view, (sx, sy), 5, (225, 110, 91), -1)
+                            cv2.putText(view, str(i + 1), (sx + 5, sy - 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (225, 110, 91), 1)
+                    
+                    if view.size == 0:
+                        continue
+                    else:
+                        print("Hello View: ", view.shape)
+                        cv2.imshow("Cropper", view)
+                    
+                    key = cv2.waitKey(1)
+                    
+                    if key == 27:  # ESC
+                        break
+                    
+                    if len(points) == 4:
+                        break
+                    
+                    cv2.destroyAllWindows()
+                    
+                    if len(points) != 4:
+                        print("Not enough points selected")
+                        return None
+                    
+                    return points
+        
+        except Exception as e:
+            print("get 4 crop points error : ", e)
+            # set_snackbar("Crop error : " + str(e), False, None)
+            return None
+    
     # fn for cropping new (has better scaling and can morph with right click)
     def get_4_crop_points(image_path, stop_event):
         try:
@@ -477,7 +581,10 @@ def main(page: Page):
         
         print("Running cropper...")
         
-        pts = get_4_crop_points(image_path, stop_event)
+        if (global_device_platform == "Darwin"):
+            pts = get_4_crop_points_mac_os(image_path, stop_event)
+        else:
+            pts = get_4_crop_points(image_path, stop_event)
         last_points = pts
         
         print("Selected points:", last_points)
