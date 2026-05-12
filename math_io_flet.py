@@ -16,7 +16,6 @@ import multiprocessing as mp
 from pix2tex.cli import LatexOCR
 
 # Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
-# TODO : fix the cacheing of the prev. img in verify menu
 # TODO : find a fix for latex rendering on mac os
 
 
@@ -53,6 +52,12 @@ global_warped_perp_obj = None
 global_verify_cropping = False
 
 # top level fn
+
+# path adjust fn for mac os (gives abs path)
+def abs_img(path):
+    return os.path.abspath(path)
+
+# mac cropper fn
 def cropper_process_mac_os(image_path, queue):
     
     try:
@@ -168,7 +173,7 @@ def cropper_process_mac_os(image_path, queue):
         queue.put(None)
 
 
-# MAC OS WRAPPER
+# MAC OS WRAPPER for get 4 crop points
 def get_4_crop_points_mac_os(image_path):
 
     try:
@@ -246,7 +251,7 @@ def main(page: Page):
                 
                 global_verify_path = new_verify_path
 
-                verify_img.src = new_verify_path
+                verify_img.src = abs_img(new_verify_path)
                 #verify_img.update()
 
                 open_verify_menu()
@@ -864,7 +869,7 @@ def main(page: Page):
 
             img_path = latex_to_png_file(extracted_eqation_latex_field.value,global_temp_equation_file_name)
             
-            latex_render_img.src = img_path
+            latex_render_img.src = abs_img(img_path)
             global_temp_equation_path = img_path
 
         page.update()
