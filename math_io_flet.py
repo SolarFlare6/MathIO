@@ -16,7 +16,6 @@ import multiprocessing as mp
 from pix2tex.cli import LatexOCR
 
 # Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
-# TODO : find a fix for latex rendering on mac os
 
 
 
