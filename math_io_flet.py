@@ -17,7 +17,6 @@ from pix2tex.cli import LatexOCR
 
 # Note add if when there are points in last points call function warped perspective, if no points are unavailable call image processing
 # TODO : fix the cacheing of the prev. img in verify menu
-# TODO : fix cropper function on mac os to run without thread
 # TODO : find a fix for latex rendering on mac os
 
 
@@ -169,9 +168,7 @@ def cropper_process_mac_os(image_path, queue):
         queue.put(None)
 
 
-# -----------------------------
 # MAC OS WRAPPER
-# -----------------------------
 def get_4_crop_points_mac_os(image_path):
 
     try:
@@ -241,9 +238,15 @@ def main(page: Page):
                 # get verification image
                 path_verify, points = process_image(global_selected_image_path,debug=debug_switch.value,verify=verify_switch.value)
 
-                global_verify_path = path_verify
+                new_verify_path = f"verify_{time.time_ns()}.png"
+                
+                # rename the file
+                if (os.path.exists(path_verify)):
+                    os.rename(path_verify,new_verify_path)
+                
+                global_verify_path = new_verify_path
 
-                verify_img.src = path_verify
+                verify_img.src = new_verify_path
                 #verify_img.update()
 
                 open_verify_menu()
@@ -1039,6 +1042,7 @@ def main(page: Page):
 
     def ver_menu_item_fn(e):
         print("Running version menu item fn !!!")
+        set_snackbar("Made by INKI943 && INKI997 with great effort 🔥🔥🔥",False,None)
     
     # destroy solution ui
     def destroy_solution_ui():
