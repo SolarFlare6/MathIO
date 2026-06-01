@@ -92,3 +92,53 @@ ollama serve
 Двоен клик на извршната датотека (`Math IO v1.1.exe`).
 
 ---
+
+## Самостојно билдање на апликацијата
+
+### Чекори
+
+**1.** Активирајте го вашиот виртуелен environment и инсталирајте ги зависностите:
+
+```bash
+pip install -r requirements.txt
+```
+
+**2.** Извршете ја командата за билдање:
+
+#### macOS
+
+> Заменете ги патеките кон `pix2tex/model` и `sympy/parsing/latex` со патеките до вашиот venv.
+
+```bash
+flet pack math_io_flet.py \
+--name "Math IO v1.1" \
+--product-name "Math IO" \
+--product-version "1.1" \
+--file-version "1.1" \
+--copyright "DV ON" \
+--add-data "assets:assets" \
+--add-data "/your/venv/lib/python3.10/site-packages/pix2tex/model:pix2tex/model" \
+--add-data "/your/venv/lib/python3.10/site-packages/sympy/parsing/latex:sympy/parsing/latex" \
+--hidden-import sympy \
+--hidden-import sympy.core \
+--hidden-import sympy.solvers \
+--hidden-import sympy.parsing.sympy_parser \
+--hidden-import sympy.parsing.latex \
+--hidden-import sympy.parsing.latex._parse_latex_antlr \
+--hidden-import sympy.parsing.latex.errors \
+--hidden-import antlr4 \
+--hidden-import antlr4.error \
+--hidden-import antlr4.error.ErrorListener \
+--hidden-import antlr4.InputStream \
+--hidden-import antlr4.CommonTokenStream
+```
+
+**3.** Почекајте билдот да заврши. Апликацијата ќе се наоѓа во `dist/` фолдерот.
+
+**4.** Отворете ја апликацијата преку терминал (погледнете ја секцијата [Отворање на апликацијата](#отворање-на-апликацијата)).
+
+#### Windows
+
+_(Наскоро)_
+
+---
