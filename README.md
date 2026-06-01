@@ -139,6 +139,10 @@ flet pack math_io_flet.py \
 
 #### Windows
 
-_(Наскоро)_
+> Заменете ги патеките кон `pix2tex/model`, `sympy/parsing/latex` и `antlr4` со патеките до вашиот Python `site-packages`.
+
+```bash
+flet pack math_io_flet.py --name "Math IO v1.1" --product-name "Math IO" --product-version "1.1" --file-version "1.1" --copyright "DV ON" --add-data "assets;assets" --add-data "C:\path\to\Python\Lib\site-packages\pix2tex\model;pix2tex/model" --debug-console on --hidden-import sympy --hidden-import sympy.parsing.latex --hidden-import antlr4 --hidden-import antlr4-python3-runtime --hidden-import sympy.parsing.latex._antlr --add-data "C:\path\to\Python\Lib\site-packages\sympy\parsing\latex;sympy/parsing/latex" --add-data "C:\path\to\Python\Lib\site-packages\antlr4_python3_runtime-4.11.0.dist-info;antlr4_python3_runtime-4.11.0.dist-info"
+```
 
 ---
