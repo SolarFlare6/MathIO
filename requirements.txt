@@ -1,0 +1,51 @@
+# Core UI
+flet==0.24.0
+flet-core==0.24.0
+flet-runtime==0.24.0
+
+# Image Processing
+opencv-python==4.13.0.92
+Pillow==12.2.0
+numpy==2.2.6
+
+# OCR
+pytesseract==0.3.13
+
+# LaTeX OCR (pix2tex and its dependencies)
+pix2tex==0.1.4
+torch==2.11.0
+torchvision==0.26.0
+transformers==5.8.0
+timm==0.5.4
+einops==0.8.2
+albumentations==1.4.24
+albucore==0.0.23
+x-transformers==0.15.0
+munch==4.0.0
+entmax==1.3
+safetensors==0.7.0
+tokenizers==0.22.2
+huggingface_hub==1.14.0
+
+# Math / SymPy
+sympy==1.14.0
+antlr4-python3-runtime==4.11.1
+mpmath==1.3.0
+
+# Plotting (LaTeX rendering)
+matplotlib==3.10.3
+
+# AI / Ollama communication
+requests==2.33.1
+
+# Utilities
+scipy==1.15.3
+pandas==2.3.3
+PyYAML==6.0.3
+tqdm==4.67.3
+regex==2026.4.4
+fsspec==2026.4.0
+filelock==3.29.0
+networkx==3.4.2
+packaging==23.2
+typing_extensions==4.15.0
